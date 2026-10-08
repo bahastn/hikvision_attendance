@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::content})}">
+<head><title th:text="#{page.reports}">Reports</title></head>
+<body>
+<div th:fragment="content">
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title"><i class="fas fa-chart-bar icon-spacing"></i><span th:text="#{reports.title}">Attendance Reports</span></span>
+        </div>
+        <div class="card-body">
+            <div class="search-bar">
+                <input type="date" class="form-control" style="width:150px;">
+                <input type="date" class="form-control" style="width:150px;">
+                <select class="form-control" style="width:150px;">
+                    <option th:text="#{reports.allDepartments}">All Departments</option>
+                    <option>IT</option>
+                    <option>HR</option>
+                    <option>Finance</option>
+                </select>
+                <button class="btn btn-primary"><i class="fas fa-filter"></i> <span th:text="#{reports.filter}">Filter</span></button>
+                <button class="btn btn-secondary"><i class="fas fa-download"></i> <span th:text="#{reports.export}">Export</span></button>
+            </div>
+            <p style="color:var(--hk-text-muted);text-align:center;padding:40px;" th:text="#{reports.placeholder}">Report charts and analytics will be displayed here.</p>
+        </div>
+    </div>
+</div>
+</body>
+</html>

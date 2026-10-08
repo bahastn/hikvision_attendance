@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::content})}">
+<head><title th:text="#{page.groups}">Groups</title></head>
+<body>
+<div th:fragment="content">
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title"><i class="fas fa-layer-group icon-spacing"></i><span th:text="#{groups.title}">Employee Groups</span></span>
+            <button class="btn btn-primary" id="btn-add-group">
+                <i class="fas fa-plus"></i> <span th:text="#{groups.addGroup}">Add Group</span>
+            </button>
+        </div>
+        <div class="card-body">
+            <div class="search-bar">
+                <input type="text" class="form-control" id="group-search" th:placeholder="#{groups.searchPlaceholder}" style="width:300px;">
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th th:text="#{table.id}">ID</th>
+                            <th th:text="#{groups.name}">Group Name</th>
+                            <th th:text="#{groups.description}">Description</th>
+                            <th th:text="#{groups.shift}">Shift</th>
+                            <th th:text="#{groups.rule}">Rule</th>
+                            <th th:text="#{groups.employeeCount}">Employees</th>
+                            <th th:text="#{table.status}">Status</th>
+                            <th th:text="#{table.actions}">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="groups-table-body">
+                        <tr><td colspan="8" style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{groups.loading}">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Group Modal -->
+    <div class="modal-overlay" id="group-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="group-modal-title" th:text="#{groups.modal.add}">Add Group</h3>
+                <button class="modal-close" onclick="app.closeModal('group-modal')">&times;</button>
+            </div>
+            <form id="group-form">
+                <div class="modal-body">
+                    <input type="hidden" id="group-id-hidden">
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{groups.form.name}">Group Name *</label>
+                        <input type="text" class="form-control" id="group-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{groups.form.description}">Description</label>
+                        <textarea class="form-control" id="group-description" rows="2"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{groups.form.shift}">Shift</label>
+                        <select class="form-control" id="group-shift">
+                            <option value="" th:text="#{groups.noShift}">-- No Shift --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{groups.form.rule}">Shift Rule</label>
+                        <select class="form-control" id="group-rule">
+                            <option value="" th:text="#{groups.noRule}">-- No Rule --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{groups.form.employees}">Assign Employees</label>
+                        <div id="group-employees-list" style="max-height:200px;overflow-y:auto;border:1px solid var(--hk-border);border-radius:4px;padding:10px;">
+                            <span style="color:var(--hk-text-muted);" th:text="#{groups.loading}">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('group-modal')" th:text="#{groups.form.cancel}">Cancel</button>
+                    <button type="submit" class="btn btn-primary" th:text="#{groups.form.save}">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+</body>
+</html>

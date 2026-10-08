@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::content})}">
+<head><title th:text="#{page.cameras}">Cameras</title></head>
+<body>
+<div th:fragment="content">
+    <div class="tab-nav">
+        <div class="tab-item active" data-tab="camera-list" th:text="#{cameras.tab.list}">Camera List</div>
+        <div class="tab-item" data-tab="camera-config" th:text="#{cameras.tab.config}">Configuration</div>
+        <div class="tab-item" data-tab="network-service" th:text="#{cameras.tab.network}">Network Service</div>
+    </div>
+    <div id="camera-list" class="tab-content active">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title"><i class="fas fa-camera icon-spacing"></i><span th:text="#{cameras.connectedCameras}">Connected Cameras</span></span>
+                <button class="btn btn-primary" id="btn-add-camera">
+                    <i class="fas fa-plus"></i> <span th:text="#{cameras.addCamera}">Add Camera</span>
+                </button>
+            </div>
+            <div class="card-body">
+                <div style="overflow-x:auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th th:text="#{cameras.name}">Name</th>
+                                <th th:text="#{table.address}">Address</th>
+                                <th th:text="#{table.location}">Location</th>
+                                <th th:text="#{table.status}">Status</th>
+                                <th th:text="#{table.active}">Active</th>
+                                <th th:text="#{table.lastSync}">Last Sync</th>
+                                <th th:text="#{table.actions}">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cameras-table-body">
+                            <tr><td colspan="7" style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{cameras.loading}">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="camera-config" class="tab-content">
+        <div class="row">
+            <div class="col-6" id="camera-cards"></div>
+            <div class="col-6">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title" th:text="#{cameras.smartApps}">Smart Applications</span>
+                    </div>
+                    <div class="card-body">
+                        <div style="display:flex;flex-direction:column;gap:15px;">
+                            <div class="smart-app-item">
+                                <div>
+                                    <div style="font-size:14px;font-weight:500;" th:text="#{cameras.faceCapture}">Face Capture</div>
+                                    <div style="font-size:12px;color:var(--hk-text-muted);" th:text="#{cameras.faceCaptureDesc}">Detect and capture faces</div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="smart-app-item">
+                                <div>
+                                    <div style="font-size:14px;font-weight:500;" th:text="#{cameras.peopleManagement}">People Management</div>
+                                    <div style="font-size:12px;color:var(--hk-text-muted);" th:text="#{cameras.peopleManagementDesc}">Count and track people</div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="smart-app-item">
+                                <div>
+                                    <div style="font-size:14px;font-weight:500;" th:text="#{cameras.smartEvent}">Smart Event</div>
+                                    <div style="font-size:12px;color:var(--hk-text-muted);" th:text="#{cameras.smartEventDesc}">Trigger on detection</div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="network-service" class="tab-content">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title" th:text="#{cameras.networkSettings}">Network Service Settings</span>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-6">
+                        <div class="form-group">
+                            <label class="form-label" th:text="#{cameras.httpPort}">HTTP Port</label>
+                            <input type="number" class="form-control" value="80">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" th:text="#{cameras.httpsPort}">HTTPS Port</label>
+                            <input type="number" class="form-control" value="443">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" th:text="#{cameras.rtspPort}">RTSP Port</label>
+                            <input type="number" class="form-control" value="554">
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="form-group">
+                            <label class="form-label" th:text="#{cameras.sdkPort}">SDK Port</label>
+                            <input type="number" class="form-control" value="8000">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" th:text="#{cameras.wsPort}">WebSocket Port</label>
+                            <input type="number" class="form-control" value="7681">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" th:text="#{cameras.wssPort}">WebSockets Port</label>
+                            <input type="number" class="form-control" value="7682">
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top:15px;">
+                    <button class="btn btn-primary"><i class="fas fa-save"></i> <span th:text="#{cameras.saveSettings}">Save Settings</span></button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-overlay" id="camera-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="camera-modal-title" th:text="#{cameras.modal.add}">Add Camera</h3>
+                <button class="modal-close" onclick="app.closeModal('camera-modal')">&times;</button>
+            </div>
+            <form id="camera-form">
+                <div class="modal-body">
+                    <input type="hidden" id="camera-id-hidden">
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{cameras.form.cameraName}">Camera Name *</label>
+                        <input type="text" class="form-control" id="cam-name" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-8">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{cameras.form.ipAddress}">IP Address *</label>
+                                <input type="text" class="form-control" id="cam-ip" required>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{cameras.form.port}">Port</label>
+                                <input type="number" class="form-control" id="cam-port" value="80">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{cameras.form.username}">Username</label>
+                                <input type="text" class="form-control" id="cam-username">
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{cameras.form.password}">Password</label>
+                                <input type="password" class="form-control" id="cam-password" th:placeholder="#{cameras.form.passwordPlaceholder}" autocomplete="new-password">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{cameras.form.protocol}">Protocol</label>
+                                <select class="form-control" id="cam-protocol">
+                                    <option value="http">HTTP</option>
+                                    <option value="https">HTTPS</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{cameras.form.location}">Location</label>
+                                <input type="text" class="form-control" id="cam-location">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{cameras.form.sdkPort}">SDK Port</label>
+                                <input type="number" class="form-control" id="cam-sdk-port" value="8000">
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{cameras.form.wsPort}">WS Port</label>
+                                <input type="number" class="form-control" id="cam-ws-port" value="7681">
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{cameras.form.rtspPort}">RTSP Port</label>
+                                <input type="number" class="form-control" id="cam-rtsp-port" value="554">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('camera-modal')" th:text="#{cameras.form.cancel}">Cancel</button>
+                    <button type="submit" class="btn btn-primary" th:text="#{cameras.form.save}">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+</body>
+</html>

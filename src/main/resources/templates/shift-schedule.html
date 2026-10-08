@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::content})}">
+<head><title th:text="#{page.shiftSchedule}">Shift Schedule</title></head>
+<body>
+<div th:fragment="content">
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title"><i class="fas fa-calendar-check icon-spacing"></i><span th:text="#{shiftSchedule.title}">Shift Schedules</span></span>
+            <button class="btn btn-primary" id="btn-add-schedule">
+                <i class="fas fa-plus"></i> <span th:text="#{shiftSchedule.addSchedule}">Add Schedule</span>
+            </button>
+        </div>
+        <div class="card-body">
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th th:text="#{table.id}">ID</th>
+                            <th th:text="#{shiftSchedule.group}">Group</th>
+                            <th th:text="#{shiftSchedule.shift}">Shift</th>
+                            <th th:text="#{shiftSchedule.rule}">Rule</th>
+                            <th th:text="#{shiftSchedule.startDate}">Start Date</th>
+                            <th th:text="#{shiftSchedule.endDate}">End Date</th>
+                            <th th:text="#{shiftSchedule.employees}">Employees</th>
+                            <th th:text="#{shiftSchedule.current}">Current</th>
+                            <th th:text="#{table.status}">Status</th>
+                            <th th:text="#{table.actions}">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="schedules-table-body">
+                        <tr><td colspan="10" style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{shiftSchedule.loading}">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Schedule Modal -->
+    <div class="modal-overlay" id="schedule-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="schedule-modal-title" th:text="#{shiftSchedule.modal.add}">Add Schedule</h3>
+                <button class="modal-close" onclick="app.closeModal('schedule-modal')">&times;</button>
+            </div>
+            <form id="schedule-form">
+                <div class="modal-body">
+                    <input type="hidden" id="schedule-id-hidden">
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shiftSchedule.form.group}">Group *</label>
+                                <select class="form-control" id="schedule-group" required>
+                                    <option value="" th:text="#{shiftSchedule.selectGroup}">-- Select Group --</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shiftSchedule.form.shift}">Shift *</label>
+                                <select class="form-control" id="schedule-shift" required>
+                                    <option value="" th:text="#{shiftSchedule.selectShift}">-- Select Shift --</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shiftSchedule.form.rule}">Rule</label>
+                                <select class="form-control" id="schedule-rule">
+                                    <option value="" th:text="#{shiftSchedule.noRule}">-- No Rule --</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shiftSchedule.form.notes}">Notes</label>
+                                <input type="text" class="form-control" id="schedule-notes">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shiftSchedule.form.startDate}">Start Date *</label>
+                                <input type="date" class="form-control" id="schedule-start-date" required>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shiftSchedule.form.endDate}">End Date *</label>
+                                <input type="date" class="form-control" id="schedule-end-date" required>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('schedule-modal')" th:text="#{shiftSchedule.form.cancel}">Cancel</button>
+                    <button type="submit" class="btn btn-primary" th:text="#{shiftSchedule.form.save}">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+</body>
+</html>

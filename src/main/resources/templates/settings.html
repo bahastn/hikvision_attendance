@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::content})}">
+<head><title th:text="#{page.settings}">Settings</title></head>
+<body>
+<div th:fragment="content">
+    <div class="row">
+        <div class="col-6">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title" th:text="#{settings.title}">Attendance Settings</span>
+                </div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{settings.workStartTime}">Work Start Time</label>
+                        <input type="time" class="form-control" value="08:00">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{settings.workEndTime}">Work End Time</label>
+                        <input type="time" class="form-control" value="17:00">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{settings.dedupInterval}">Deduplication Interval (seconds)</label>
+                        <input type="number" class="form-control" value="60">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{settings.similarityThreshold}">Face Similarity Threshold (%)</label>
+                        <input type="number" class="form-control" value="80">
+                    </div>
+                    <button class="btn btn-primary"><i class="fas fa-save"></i> <span th:text="#{settings.saveSettings}">Save Settings</span></button>
+                </div>
+            </div>
+        </div>
+        <div class="col-6">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title" th:text="#{settings.systemInfo}">System Info</span>
+                </div>
+                <div class="card-body">
+                    <div class="camera-config-card" style="margin-bottom:0;">
+                        <div class="config-row"><span class="config-label" th:text="#{settings.version}">Version</span><span class="config-value">v1.0.0</span></div>
+                        <div class="config-row"><span class="config-label" th:text="#{settings.database}">Database</span><span class="config-value">PostgreSQL</span></div>
+                        <div class="config-row"><span class="config-label" th:text="#{settings.websocket}">WebSocket</span><span class="config-value">Enabled (2s sync)</span></div>
+                        <div class="config-row"><span class="config-label" th:text="#{settings.cameraProtocol}">Camera Protocol</span><span class="config-value">ISAPI / SDK</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

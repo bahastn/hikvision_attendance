@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::content})}">
+<head><title th:text="#{page.shifts}">Shifts</title></head>
+<body>
+<div th:fragment="content">
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title"><i class="fas fa-clock icon-spacing"></i><span th:text="#{shifts.title}">Shift Management</span></span>
+            <button class="btn btn-primary" id="btn-add-shift">
+                <i class="fas fa-plus"></i> <span th:text="#{shifts.addShift}">Add Shift</span>
+            </button>
+        </div>
+        <div class="card-body">
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th th:text="#{table.id}">ID</th>
+                            <th th:text="#{shifts.name}">Shift Name</th>
+                            <th th:text="#{shifts.startTime}">Start Time</th>
+                            <th th:text="#{shifts.endTime}">End Time</th>
+                            <th th:text="#{shifts.lateThreshold}">Late After</th>
+                            <th th:text="#{shifts.earlyLeave}">Early Leave</th>
+                            <th th:text="#{shifts.workingDays}">Working Days</th>
+                            <th th:text="#{shifts.groupCount}">Groups</th>
+                            <th th:text="#{table.status}">Status</th>
+                            <th th:text="#{table.actions}">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="shifts-table-body">
+                        <tr><td colspan="10" style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{shifts.loading}">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shift Modal -->
+    <div class="modal-overlay" id="shift-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="shift-modal-title" th:text="#{shifts.modal.add}">Add Shift</h3>
+                <button class="modal-close" onclick="app.closeModal('shift-modal')">&times;</button>
+            </div>
+            <form id="shift-form">
+                <div class="modal-body">
+                    <input type="hidden" id="shift-id-hidden">
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shifts.form.name}">Shift Name *</label>
+                                <input type="text" class="form-control" id="shift-name" required>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shifts.form.description}">Description</label>
+                                <input type="text" class="form-control" id="shift-description">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shifts.form.startTime}">Start Time *</label>
+                                <input type="time" class="form-control" id="shift-start-time" required>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shifts.form.endTime}">End Time *</label>
+                                <input type="time" class="form-control" id="shift-end-time" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shifts.form.lateThreshold}">Late Threshold (minutes)</label>
+                                <input type="number" class="form-control" id="shift-late-threshold" value="15" min="0">
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shifts.form.earlyLeaveThreshold}">Early Leave Threshold (minutes)</label>
+                                <input type="number" class="form-control" id="shift-early-leave" value="15" min="0">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shifts.form.breakStart}">Break Start</label>
+                                <input type="time" class="form-control" id="shift-break-start">
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shifts.form.breakEnd}">Break End</label>
+                                <input type="time" class="form-control" id="shift-break-end">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{shifts.form.workingDays}">Working Days</label>
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                            <label style="display:flex;align-items:center;gap:4px;">
+                                <input type="checkbox" class="working-day" value="MONDAY" checked> <span th:text="#{shifts.day.monday}">Mon</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;">
+                                <input type="checkbox" class="working-day" value="TUESDAY" checked> <span th:text="#{shifts.day.tuesday}">Tue</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;">
+                                <input type="checkbox" class="working-day" value="WEDNESDAY" checked> <span th:text="#{shifts.day.wednesday}">Wed</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;">
+                                <input type="checkbox" class="working-day" value="THURSDAY" checked> <span th:text="#{shifts.day.thursday}">Thu</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;">
+                                <input type="checkbox" class="working-day" value="FRIDAY" checked> <span th:text="#{shifts.day.friday}">Fri</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;">
+                                <input type="checkbox" class="working-day" value="SATURDAY"> <span th:text="#{shifts.day.saturday}">Sat</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;">
+                                <input type="checkbox" class="working-day" value="SUNDAY"> <span th:text="#{shifts.day.sunday}">Sun</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('shift-modal')" th:text="#{shifts.form.cancel}">Cancel</button>
+                    <button type="submit" class="btn btn-primary" th:text="#{shifts.form.save}">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+</body>
+</html>

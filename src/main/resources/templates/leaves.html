@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::content})}">
+<head><title th:text="#{page.leaves}">Leaves</title></head>
+<body>
+<div th:fragment="content">
+
+    <!-- Summary Cards -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon green"><i class="fas fa-calendar-check"></i></div>
+            <div class="stat-info">
+                <h3 id="leave-active-count">0</h3>
+                <p th:text="#{leave.activeNow}">On Leave Now</p>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon orange"><i class="fas fa-hourglass-half"></i></div>
+            <div class="stat-info">
+                <h3 id="leave-pending-count">0</h3>
+                <p th:text="#{leave.pendingRequests}">Pending Requests</p>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon blue"><i class="fas fa-calendar-alt"></i></div>
+            <div class="stat-info">
+                <h3 id="leave-upcoming-count">0</h3>
+                <p th:text="#{leave.upcoming}">Upcoming Leaves</p>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon red"><i class="fas fa-calendar-times"></i></div>
+            <div class="stat-info">
+                <h3 id="leave-total-count">0</h3>
+                <p th:text="#{leave.totalRequests}">Total Requests</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tab-nav">
+        <div class="tab-item active" data-tab="all-leaves" th:text="#{leave.tab.all}">All Leaves</div>
+        <div class="tab-item" data-tab="active-leaves" th:text="#{leave.tab.active}">Active Now</div>
+        <div class="tab-item" data-tab="pending-leaves" th:text="#{leave.tab.pending}">Pending</div>
+        <div class="tab-item" data-tab="approved-leaves" th:text="#{leave.tab.approved}">Approved</div>
+    </div>
+
+    <!-- All Leaves Tab -->
+    <div id="all-leaves" class="tab-content active">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title"><i class="fas fa-list icon-spacing"></i><span th:text="#{leave.allLeaves}">All Leave Requests</span></span>
+                <button class="btn btn-primary" id="btn-add-leave">
+                    <i class="fas fa-plus"></i> <span th:text="#{leave.addLeave}">Request Leave</span>
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="search-bar">
+                    <input type="text" class="form-control" id="leave-search" th:placeholder="#{leave.searchPlaceholder}" style="width:300px;">
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th th:text="#{table.id}">ID</th>
+                                <th th:text="#{table.name}">Name</th>
+                                <th th:text="#{table.department}">Department</th>
+                                <th th:text="#{leave.leaveType}">Leave Type</th>
+                                <th th:text="#{leave.startDate}">Start Date</th>
+                                <th th:text="#{leave.endDate}">End Date</th>
+                                <th th:text="#{leave.duration}">Duration</th>
+                                <th th:text="#{leave.reason}">Reason</th>
+                                <th th:text="#{table.status}">Status</th>
+                                <th th:text="#{table.actions}">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="leaves-table-body">
+                            <tr><td colspan="10" style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{leave.loading}">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Leaves Tab -->
+    <div id="active-leaves" class="tab-content">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title"><i class="fas fa-user-clock icon-spacing"></i><span th:text="#{leave.currentlyOnLeave}">Currently On Leave</span></span>
+            </div>
+            <div class="card-body" style="padding:0;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th th:text="#{table.id}">ID</th>
+                            <th th:text="#{table.name}">Name</th>
+                            <th th:text="#{table.department}">Department</th>
+                            <th th:text="#{leave.leaveType}">Leave Type</th>
+                            <th th:text="#{leave.startDate}">Start Date</th>
+                            <th th:text="#{leave.endDate}">End Date</th>
+                            <th th:text="#{leave.daysRemaining}">Days Remaining</th>
+                            <th th:text="#{leave.reason}">Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody id="active-leaves-body">
+                        <tr><td colspan="8" style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{leave.loading}">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pending Leaves Tab -->
+    <div id="pending-leaves" class="tab-content">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title"><i class="fas fa-hourglass-half icon-spacing"></i><span th:text="#{leave.pendingApproval}">Pending Approval</span></span>
+            </div>
+            <div class="card-body" style="padding:0;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th th:text="#{table.id}">ID</th>
+                            <th th:text="#{table.name}">Name</th>
+                            <th th:text="#{table.department}">Department</th>
+                            <th th:text="#{leave.leaveType}">Leave Type</th>
+                            <th th:text="#{leave.startDate}">Start Date</th>
+                            <th th:text="#{leave.endDate}">End Date</th>
+                            <th th:text="#{leave.duration}">Duration</th>
+                            <th th:text="#{leave.reason}">Reason</th>
+                            <th th:text="#{table.actions}">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pending-leaves-body">
+                        <tr><td colspan="9" style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{leave.loading}">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Approved Leaves Tab -->
+    <div id="approved-leaves" class="tab-content">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title"><i class="fas fa-check-circle icon-spacing"></i><span th:text="#{leave.approvedLeaves}">Approved Leaves</span></span>
+            </div>
+            <div class="card-body" style="padding:0;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th th:text="#{table.id}">ID</th>
+                            <th th:text="#{table.name}">Name</th>
+                            <th th:text="#{table.department}">Department</th>
+                            <th th:text="#{leave.leaveType}">Leave Type</th>
+                            <th th:text="#{leave.startDate}">Start Date</th>
+                            <th th:text="#{leave.endDate}">End Date</th>
+                            <th th:text="#{leave.duration}">Duration</th>
+                            <th th:text="#{leave.approvedBy}">Approved By</th>
+                        </tr>
+                    </thead>
+                    <tbody id="approved-leaves-body">
+                        <tr><td colspan="8" style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{leave.loading}">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leave Request Modal -->
+    <div class="modal-overlay" id="leave-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 th:text="#{leave.requestLeave}">Request Leave</h3>
+                <button class="modal-close" onclick="app.closeModal('leave-modal')">&times;</button>
+            </div>
+            <form id="leave-form">
+                <div class="modal-body">
+                    <input type="hidden" id="leave-id-hidden">
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{leave.selectEmployee}">Select Employee *</label>
+                        <select class="form-control" id="leave-employee" required>
+                            <option value="" th:text="#{leave.selectEmployeePlaceholder}">-- Select Employee --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{leave.leaveType}">Leave Type *</label>
+                        <select class="form-control" id="leave-type" required>
+                            <option value="ANNUAL" th:text="#{leave.type.annual}">Annual Leave</option>
+                            <option value="SICK" th:text="#{leave.type.sick}">Sick Leave</option>
+                            <option value="CASUAL" th:text="#{leave.type.casual}">Casual Leave</option>
+                            <option value="MATERNITY" th:text="#{leave.type.maternity}">Maternity Leave</option>
+                            <option value="PATERNITY" th:text="#{leave.type.paternity}">Paternity Leave</option>
+                            <option value="UNPAID" th:text="#{leave.type.unpaid}">Unpaid Leave</option>
+                            <option value="OTHER" th:text="#{leave.type.other}">Other</option>
+                        </select>
+                    </div>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{leave.startDate}">Start Date *</label>
+                                <input type="date" class="form-control" id="leave-start-date" required>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{leave.endDate}">End Date *</label>
+                                <input type="date" class="form-control" id="leave-end-date" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{leave.reason}">Reason</label>
+                        <textarea class="form-control" id="leave-reason" rows="3" th:placeholder="#{leave.reasonPlaceholder}"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('leave-modal')" th:text="#{leave.cancel}">Cancel</button>
+                    <button type="submit" class="btn btn-primary" th:text="#{leave.submit}">Submit Request</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+</body>
+</html>

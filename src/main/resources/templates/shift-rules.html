@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::content})}">
+<head><title th:text="#{page.shiftRules}">Shift Rules</title></head>
+<body>
+<div th:fragment="content">
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title"><i class="fas fa-gavel icon-spacing"></i><span th:text="#{shiftRules.title}">Shift Rules</span></span>
+            <button class="btn btn-primary" id="btn-add-rule">
+                <i class="fas fa-plus"></i> <span th:text="#{shiftRules.addRule}">Add Rule</span>
+            </button>
+        </div>
+        <div class="card-body">
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th th:text="#{table.id}">ID</th>
+                            <th th:text="#{shiftRules.name}">Rule Name</th>
+                            <th th:text="#{shiftRules.lateThreshold}">Late After</th>
+                            <th th:text="#{shiftRules.earlyLeave}">Early Leave</th>
+                            <th th:text="#{shiftRules.absentAfter}">Absent After</th>
+                            <th th:text="#{shiftRules.gracePeriod}">Grace Period</th>
+                            <th th:text="#{shiftRules.groups}">Groups</th>
+                            <th th:text="#{shiftRules.schedules}">Schedules</th>
+                            <th th:text="#{table.status}">Status</th>
+                            <th th:text="#{table.actions}">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rules-table-body">
+                        <tr><td colspan="10" style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{shiftRules.loading}">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rule Modal -->
+    <div class="modal-overlay" id="rule-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="rule-modal-title" th:text="#{shiftRules.modal.add}">Add Rule</h3>
+                <button class="modal-close" onclick="app.closeModal('rule-modal')">&times;</button>
+            </div>
+            <form id="rule-form">
+                <div class="modal-body">
+                    <input type="hidden" id="rule-id-hidden">
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shiftRules.form.name}">Rule Name *</label>
+                                <input type="text" class="form-control" id="rule-name" required>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shiftRules.form.description}">Description</label>
+                                <input type="text" class="form-control" id="rule-description">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shiftRules.form.lateThreshold}">Late Threshold (min)</label>
+                                <input type="number" class="form-control" id="rule-late-threshold" value="15" min="0">
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shiftRules.form.earlyLeaveThreshold}">Early Leave Threshold (min)</label>
+                                <input type="number" class="form-control" id="rule-early-leave" value="15" min="0">
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shiftRules.form.absentAfter}">Absent After (min)</label>
+                                <input type="number" class="form-control" id="rule-absent-after" value="240" min="0">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shiftRules.form.gracePeriod}">Grace Period (min)</label>
+                                <input type="number" class="form-control" id="rule-grace-period" value="0" min="0">
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shiftRules.form.maxWorkHours}">Max Work Hours</label>
+                                <input type="number" class="form-control" id="rule-max-hours" value="" min="0" step="0.5" placeholder="No limit">
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{shiftRules.form.requireCheckIn}">Require Check-In</label>
+                                <select class="form-control" id="rule-require-checkin">
+                                    <option value="true" selected>Yes</option>
+                                    <option value="false">No</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('rule-modal')" th:text="#{shiftRules.form.cancel}">Cancel</button>
+                    <button type="submit" class="btn btn-primary" th:text="#{shiftRules.form.save}">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+</body>
+</html>

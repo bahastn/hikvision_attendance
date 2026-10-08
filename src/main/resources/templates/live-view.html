@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::content})}">
+<head><title th:text="#{page.liveView}">Live View</title></head>
+<body>
+<div th:fragment="content">
+    <div class="row">
+        <div class="col-8">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title"><i class="fas fa-video icon-spacing"></i><span th:text="#{liveView.title}">Live Feed - Main Gate</span></span>
+                    <span class="badge badge-present" th:text="#{liveView.live}">LIVE</span>
+                </div>
+                <div class="card-body" style="padding:0;">
+                    <div class="live-feed" style="height:500px;">
+                        <div style="text-align:center;">
+                            <i class="fas fa-video" style="font-size:48px;margin-bottom:15px;display:block;color:var(--hk-border);"></i>
+                            <p th:if="${rtspUrl != null}" th:text="#{liveView.rtspStream} + ': ' + ${rtspUrl}">RTSP Stream</p>
+                            <p th:if="${rtspUrl == null}" th:text="#{liveView.noActiveCamera}">No active camera configured</p>
+                            <p style="font-size:12px;color:var(--hk-text-muted);" th:text="#{liveView.openVlc}">Open the RTSP URL in VLC to view the live stream</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title" th:text="#{liveView.realtimeDetections}">Real-time Detections</span>
+                </div>
+                <div class="card-body" style="padding:0;">
+                    <div id="live-detections" style="max-height:500px;overflow-y:auto;">
+                        <div style="padding:20px;text-align:center;color:var(--hk-text-muted);" th:text="#{liveView.waitingDetections}">Waiting for detections...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

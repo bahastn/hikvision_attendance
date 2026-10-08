@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::content})}">
+<head><title th:text="#{page.dashboard}">Dashboard</title></head>
+<body>
+<div th:fragment="content">
+
+    <!-- Row 1: Attendance Stats Cards -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon blue"><i class="fas fa-users"></i></div>
+            <div class="stat-info">
+                <h3 id="stat-total-employees">0</h3>
+                <p th:text="#{dashboard.totalEmployees}">Total Employees</p>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon green"><i class="fas fa-check-circle"></i></div>
+            <div class="stat-info">
+                <h3 id="stat-present">0</h3>
+                <p th:text="#{dashboard.presentToday}">Present Today</p>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon orange"><i class="fas fa-clock"></i></div>
+            <div class="stat-info">
+                <h3 id="stat-late">0</h3>
+                <p th:text="#{dashboard.lateArrivals}">Late Arrivals</p>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon red"><i class="fas fa-user-times"></i></div>
+            <div class="stat-info">
+                <h3 id="stat-absent">0</h3>
+                <p th:text="#{dashboard.absent}">Absent</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Row 2: Attendance Summary + Quick Stats -->
+    <div class="row">
+        <!-- Attendance Rate Ring -->
+        <div class="col-4">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title"><i class="fas fa-chart-pie icon-spacing"></i><span th:text="#{dashboard.attendanceRate}">Attendance Rate</span></span>
+                </div>
+                <div class="card-body">
+                    <div class="progress-ring-container">
+                        <div>
+                            <div class="progress-ring">
+                                <svg viewBox="0 0 120 120">
+                                    <circle class="ring-bg" cx="60" cy="60" r="52"></circle>
+                                    <circle class="ring-fill" id="attendance-ring" cx="60" cy="60" r="52"
+                                            stroke-dasharray="326.7" stroke-dashoffset="326.7"></circle>
+                                </svg>
+                                <div class="ring-text" id="attendance-rate-text">0%</div>
+                            </div>
+                            <div class="ring-label" th:text="#{dashboard.presentToday}">Present Today</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:20px;">
+                        <div class="mini-stat-row">
+                            <span class="mini-stat-label">
+                                <i class="fas fa-sign-in-alt" style="color: var(--hk-success);"></i>
+                                <span th:text="#{dashboard.checkedIn}">Checked In</span>
+                            </span>
+                            <span class="mini-stat-value success" id="stat-checked-in">0</span>
+                        </div>
+                        <div class="mini-stat-row">
+                            <span class="mini-stat-label">
+                                <i class="fas fa-sign-out-alt" style="color: var(--hk-info);"></i>
+                                <span th:text="#{dashboard.checkedOut}">Checked Out</span>
+                            </span>
+                            <span class="mini-stat-value info" id="stat-checked-out">0</span>
+                        </div>
+                        <div class="mini-stat-row">
+                            <span class="mini-stat-label">
+                                <i class="fas fa-clock" style="color: var(--hk-warning);"></i>
+                                <span th:text="#{dashboard.onTime}">On Time</span>
+                            </span>
+                            <span class="mini-stat-value" id="stat-on-time">0</span>
+                        </div>
+                        <div class="mini-stat-row">
+                            <span class="mini-stat-label">
+                                <i class="fas fa-business-time" style="color: var(--hk-info);"></i>
+                                <span th:text="#{dashboard.avgWorkHours}">Avg Work Hours</span>
+                            </span>
+                            <span class="mini-stat-value info" id="stat-avg-hours">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Today's Attendance Summary Bar -->
+        <div class="col-8">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title"><i class="fas fa-chart-bar icon-spacing"></i><span th:text="#{dashboard.summary}">Daily Summary</span></span>
+                    <span style="font-size:12px;color:var(--hk-text-muted);" th:text="${todayDate}"></span>
+                </div>
+                <div class="card-body">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+                        <div>
+                            <div style="font-size:28px;font-weight:700;color:var(--hk-text);" id="summary-total">0</div>
+                            <div style="font-size:13px;color:var(--hk-text-muted);" th:text="#{dashboard.totalRecords}">Total Records</div>
+                        </div>
+                        <div style="text-align:center;">
+                            <div style="font-size:28px;font-weight:700;color:var(--hk-success);" id="summary-present-pct">0%</div>
+                            <div style="font-size:13px;color:var(--hk-text-muted);" th:text="#{dashboard.presentToday}">Present Today</div>
+                        </div>
+                        <div style="text-align:center;">
+                            <div style="font-size:28px;font-weight:700;color:var(--hk-warning);" id="summary-late-pct">0%</div>
+                            <div style="font-size:13px;color:var(--hk-text-muted);" th:text="#{dashboard.lateArrivals}">Late Arrivals</div>
+                        </div>
+                        <div style="text-align:center;">
+                            <div style="font-size:28px;font-weight:700;color:var(--hk-accent);" id="summary-absent-pct">0%</div>
+                            <div style="font-size:13px;color:var(--hk-text-muted);" th:text="#{dashboard.absent}">Absent</div>
+                        </div>
+                    </div>
+
+                    <!-- Visual summary bar -->
+                    <div class="attendance-summary-bar">
+                        <div class="summary-segment present" id="bar-present" style="width:0%"></div>
+                        <div class="summary-segment late" id="bar-late" style="width:0%"></div>
+                        <div class="summary-segment absent" id="bar-absent" style="width:0%"></div>
+                    </div>
+
+                    <div class="attendance-legend">
+                        <div class="legend-item">
+                            <div class="legend-dot present"></div>
+                            <span th:text="#{dashboard.presentToday}">Present Today</span>
+                            <strong id="legend-present-count">0</strong>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-dot late"></div>
+                            <span th:text="#{dashboard.lateArrivals}">Late Arrivals</span>
+                            <strong id="legend-late-count">0</strong>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-dot absent"></div>
+                            <span th:text="#{dashboard.absent}">Absent</span>
+                            <strong id="legend-absent-count">0</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Camera Status Card (below summary) -->
+            <div class="card" style="margin-top:20px;">
+                <div class="card-header">
+                    <span class="card-title"><i class="fas fa-camera icon-spacing"></i><span th:text="#{dashboard.cameraStatus}">Camera Status</span></span>
+                </div>
+                <div class="card-body">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <div style="display:flex;align-items:center;gap:15px;">
+                            <div class="live-feed" style="width:200px;aspect-ratio:16/9;">
+                                <div style="text-align:center;">
+                                    <i class="fas fa-video" style="font-size:24px;margin-bottom:5px;display:block;"></i>
+                                    <span style="font-size:11px;" th:text="#{dashboard.liveFeedAppear}">Live feed will appear here</span>
+                                </div>
+                            </div>
+                            <div>
+                                <div style="font-size:14px;font-weight:500;color:var(--hk-text);" th:text="#{dashboard.camera1}">Camera 1</div>
+                                <div style="font-size:12px;color:var(--hk-text-muted);margin-top:4px;">
+                                    <span th:text="#{dashboard.lastSync}">Last Sync</span>:
+                                    <span id="last-sync-time" th:text="#{dashboard.justNow}">Just now</span>
+                                </div>
+                            </div>
+                        </div>
+                        <span class="badge badge-present" style="font-size:13px;padding:6px 14px;" th:text="#{dashboard.online}">Online</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Row 3: On Leave + Recent Detections -->
+    <div class="row">
+        <!-- On Leave Now -->
+        <div class="col-4">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title"><i class="fas fa-user-clock icon-spacing"></i><span th:text="#{dashboard.onLeaveNow}">On Leave Now</span></span>
+                    <a href="/leaves" class="btn btn-sm btn-secondary">
+                        <span th:text="#{dashboard.viewAll}">View All</span>
+                    </a>
+                </div>
+                <div class="card-body" style="padding:0;max-height:400px;overflow-y:auto;">
+                    <div id="on-leave-list">
+                        <div style="padding:20px;text-align:center;color:var(--hk-text-muted);" th:text="#{dashboard.noOneOnLeave}">No employees on leave</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Detections -->
+        <div class="col-8">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title"><i class="fas fa-list icon-spacing"></i><span th:text="#{dashboard.recentDetections}">Recent Detections</span></span>
+                    <a href="/attendance" class="btn btn-sm btn-secondary">
+                        <span th:text="#{dashboard.viewAll}">View All</span> <i class="fas fa-arrow-right" style="margin-left:4px;"></i>
+                    </a>
+                </div>
+                <div class="card-body" style="padding:0;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th th:text="#{table.face}">Face</th>
+                                <th th:text="#{table.id}">ID</th>
+                                <th th:text="#{table.name}">Name</th>
+                                <th th:text="#{table.department}">Department</th>
+                                <th th:text="#{table.checkIn}">Check In</th>
+                                <th th:text="#{table.checkOut}">Check Out</th>
+                                <th th:text="#{table.status}">Status</th>
+                                <th th:text="#{table.matchPercent}">Match %</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recent-detections-body">
+                            <tr><td colspan="8" style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{dashboard.waitingDetections}">Waiting for detections...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

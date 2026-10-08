@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::content})}">
+<head><title th:text="#{page.attendance}">Attendance</title></head>
+<body>
+<div th:fragment="content">
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title"><i class="fas fa-clipboard-list icon-spacing"></i><span th:text="#{attendance.title}">Attendance Records</span></span>
+            <div style="display:flex;gap:10px;">
+                <input type="date" class="form-control" id="date-filter" th:value="${todayDate}" style="width:150px;">
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="search-bar">
+                <input type="text" class="form-control" id="attendance-search" th:placeholder="#{attendance.searchPlaceholder}">
+                <button class="btn btn-primary" onclick="app.loadAttendanceRecords()">
+                    <i class="fas fa-sync-alt"></i> <span th:text="#{attendance.refresh}">Refresh</span>
+                </button>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th th:text="#{table.empId}">Emp ID</th>
+                            <th th:text="#{table.name}">Name</th>
+                            <th th:text="#{table.department}">Department</th>
+                            <th th:text="#{table.date}">Date</th>
+                            <th th:text="#{table.checkIn}">Check In</th>
+                            <th th:text="#{table.checkOut}">Check Out</th>
+                            <th th:text="#{table.hours}">Hours</th>
+                            <th th:text="#{table.status}">Status</th>
+                            <th th:text="#{table.action}">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendance-table-body">
+                        <tr><td colspan="9" style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{attendance.loading}">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>
