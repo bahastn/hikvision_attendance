@@ -21,6 +21,7 @@ public class AttendanceDTO {
     private String deviceId;
     private Double similarityScore;
     private String faceImageUrl;
+    private String employeePhotoUrl;
     private String direction;
     private String notes;
 }

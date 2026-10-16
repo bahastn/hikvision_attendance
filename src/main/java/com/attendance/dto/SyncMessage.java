@@ -17,6 +17,7 @@ public class SyncMessage {
     private Double similarityScore;
     private String direction;
     private String faceImageUrl;
+    private String employeePhotoUrl;
     private Integer totalPresent;
     private Integer totalAbsent;
     private Integer totalLate;

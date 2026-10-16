@@ -4,13 +4,18 @@ import com.attendance.dto.*;
 import com.attendance.service.AttendanceService;
 import com.attendance.service.CameraService;
 import com.attendance.service.EmployeeService;
+import com.attendance.service.FaceEnrollmentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +30,7 @@ public class AttendanceRestController {
     private final EmployeeService employeeService;
     private final AttendanceService attendanceService;
     private final CameraService cameraService;
+    private final FaceEnrollmentService faceEnrollmentService;
 
     // Employee APIs
     @GetMapping("/employees")
@@ -54,8 +60,131 @@ public class AttendanceRestController {
 
     @DeleteMapping("/employees/{id}")
     public ResponseEntity<ApiResponse<Void>> deleteEmployee(@PathVariable Long id) {
+        try {
+            faceEnrollmentService.removeFace(id);
+        } catch (Exception e) {
+            log.warn("Could not remove face of employee {} from camera: {}", id, e.getMessage());
+        }
         employeeService.deleteEmployee(id);
         return ResponseEntity.ok(ApiResponse.success("Employee deleted", null));
+    }
+
+    /**
+     * Enroll or replace an employee's face: stores the photo and pushes it to the
+     * face library of the selected cameras (all active cameras when cameraIds is
+     * not given; the camera assigns the PID used to map match events back to this
+     * employee).
+     */
+    @PostMapping(value = "/employees/{id}/face", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<EmployeeDTO>> enrollFace(@PathVariable Long id,
+                                                               @RequestParam("photo") MultipartFile photo,
+                                                               @RequestParam(required = false) String cameraIds) {
+        try {
+            if (photo == null || photo.isEmpty()) {
+                return ResponseEntity.badRequest().body(ApiResponse.error("Please choose a photo"));
+            }
+            FaceEnrollmentService.EnrollmentResult result =
+                    faceEnrollmentService.enrollFace(id, photo.getBytes(), parseCameraIds(cameraIds));
+            return ResponseEntity.ok(ApiResponse.success(result.message(), result.employee()));
+        } catch (Exception e) {
+            log.warn("Face enrollment failed for employee {}: {}", id, e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Face enrollment failed: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Create an employee together with a face photo in one request: saves the
+     * employee, then pushes the photo to the face library of the selected cameras
+     * (all active cameras when cameraIds is not given).
+     */
+    @PostMapping(value = "/employees/with-face", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<EmployeeDTO>> createEmployeeWithFace(
+            @RequestParam String employeeId,
+            @RequestParam String fullName,
+            @RequestParam(required = false) String department,
+            @RequestParam(required = false) String position,
+            @RequestParam(required = false) String email,
+            @RequestParam(required = false) String phone,
+            @RequestParam(value = "photo", required = false) MultipartFile photo,
+            @RequestParam(required = false) String cameraIds) {
+        try {
+            EmployeeDTO dto = EmployeeDTO.builder()
+                    .employeeId(employeeId)
+                    .fullName(fullName)
+                    .department(department)
+                    .position(position)
+                    .email(email)
+                    .phone(phone)
+                    .build();
+            EmployeeDTO saved = employeeService.createEmployee(dto);
+            if (photo == null || photo.isEmpty()) {
+                return ResponseEntity.ok(ApiResponse.success("Employee created (no photo)", saved));
+            }
+            FaceEnrollmentService.EnrollmentResult result =
+                    faceEnrollmentService.enrollFace(saved.getId(), photo.getBytes(), parseCameraIds(cameraIds));
+            return ResponseEntity.ok(ApiResponse.success(result.message(), result.employee()));
+        } catch (Exception e) {
+            log.warn("Creating employee with face failed: {}", e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Could not add employee: " + e.getMessage()));
+        }
+    }
+
+    private List<Long> parseCameraIds(String cameraIds) {
+        if (cameraIds == null || cameraIds.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(cameraIds.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(Long::valueOf)
+                .toList();
+    }
+
+    /** Remove the employee's face from every camera's face library. */
+    @DeleteMapping("/employees/{id}/face")
+    public ResponseEntity<ApiResponse<EmployeeDTO>> removeFace(@PathVariable Long id) {
+        try {
+            faceEnrollmentService.removeFace(id);
+            return ResponseEntity.ok(ApiResponse.success("Face removed from camera",
+                    employeeService.getEmployeeById(id)));
+        } catch (Exception e) {
+            log.warn("Face removal failed for employee {}: {}", id, e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Face removal failed: " + e.getMessage()));
+        }
+    }
+
+    /** All active cameras with this employee's enrollment state on each (camera-target UI). */
+    @GetMapping("/employees/{id}/camera-targets")
+    public ResponseEntity<ApiResponse<List<CameraTargetDTO>>> getCameraTargets(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(faceEnrollmentService.getCameraTargets(id)));
+    }
+
+    /** Push the employee's stored face photo to a single camera. */
+    @PostMapping("/employees/{id}/camera-targets/{cameraId}")
+    public ResponseEntity<ApiResponse<EmployeeDTO>> enrollOnCamera(@PathVariable Long id,
+                                                                   @PathVariable Long cameraId) {
+        try {
+            FaceEnrollmentService.EnrollmentResult result =
+                    faceEnrollmentService.enrollOnCamera(id, cameraId);
+            return ResponseEntity.ok(ApiResponse.success(result.message(), result.employee()));
+        } catch (Exception e) {
+            log.warn("Sending face of employee {} to camera {} failed: {}", id, cameraId, e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Send failed: " + e.getMessage()));
+        }
+    }
+
+    /** Remove the employee's face from a single camera. */
+    @DeleteMapping("/employees/{id}/camera-targets/{cameraId}")
+    public ResponseEntity<ApiResponse<EmployeeDTO>> removeFromCamera(@PathVariable Long id,
+                                                                     @PathVariable Long cameraId) {
+        try {
+            faceEnrollmentService.removeFromCamera(id, cameraId);
+            return ResponseEntity.ok(ApiResponse.success("Face removed from camera",
+                    employeeService.getEmployeeById(id)));
+        } catch (Exception e) {
+            log.warn("Removing face of employee {} from camera {} failed: {}", id, cameraId, e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Remove failed: " + e.getMessage()));
+        }
     }
 
     // Attendance APIs
@@ -153,6 +282,16 @@ public class AttendanceRestController {
         } else {
             return ResponseEntity.ok(ApiResponse.error("Connection failed - check IP, port, username and password"));
         }
+    }
+
+    /** Latest JPEG frame from the camera, for the live-view page (browsers can't play RTSP). */
+    @GetMapping(value = "/cameras/{id}/snapshot", produces = MediaType.IMAGE_JPEG_VALUE)
+    public ResponseEntity<byte[]> getCameraSnapshot(@PathVariable Long id) {
+        return cameraService.getSnapshot(id, 101)
+                .map(jpeg -> ResponseEntity.ok()
+                        .cacheControl(CacheControl.noStore())
+                        .body(jpeg))
+                .orElse(ResponseEntity.notFound().build());
     }
 
     /**

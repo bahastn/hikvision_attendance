@@ -24,12 +24,12 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        seedShiftsAndGroups();
-        seedShiftRules();
-        seedShiftSchedules();
-        seedEmployees();
-        seedCameras();
-        seedLeaves();
+//        seedShiftsAndGroups();
+//        seedShiftRules();
+//        seedShiftSchedules();
+//        seedEmployees();
+//        seedCameras();
+//        seedLeaves();
     }
 
     private void seedShiftsAndGroups() {

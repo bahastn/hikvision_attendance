@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -89,6 +90,14 @@ public class CameraService {
     public boolean testConnectionWithCredentials(String ip, Integer port, String protocol,
                                                   String username, String password) {
         return isapiClient.testConnectionWithCredentials(ip, port, protocol, username, password);
+    }
+
+    /** Latest JPEG frame from a camera channel (101 = camera 1 main stream). */
+    @Transactional(readOnly = true)
+    public Optional<byte[]> getSnapshot(Long id, int channel) {
+        return cameraRepository.findById(id)
+                .filter(c -> Boolean.TRUE.equals(c.getIsActive()))
+                .flatMap(c -> isapiClient.snapshot(c, channel));
     }
 
     @Transactional

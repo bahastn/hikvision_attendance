@@ -30,6 +30,8 @@ class AttendanceApp {
             this.initAttendancePage();
         } else if (this.currentPage === '/employees') {
             this.initEmployeesPage();
+        } else if (this.currentPage === '/face-library') {
+            this.initFaceLibraryPage();
         } else if (this.currentPage === '/cameras') {
             this.initCamerasPage();
         } else if (this.currentPage === '/live-view') {
@@ -170,6 +172,7 @@ class AttendanceApp {
         );
         this.addDetectionToTable(detection);
         this.addLiveDetection(detection);
+        this.addRealtimeAttendance(detection);
     }
 
     handleCameraStatus(status) {
@@ -229,18 +232,117 @@ class AttendanceApp {
         }
     }
 
+    /** Multipart POST (file uploads). Let the browser set the Content-Type boundary. */
+    async ajaxUpload(url, formData) {
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                body: formData
+            });
+            return await response.json();
+        } catch (error) {
+            console.error('UPLOAD Error:', error);
+            throw error;
+        }
+    }
+
     // ==================== DASHBOARD ====================
     initDashboard() {
+        this.initLiveSnapshot();
         this.loadDashboardStats();
         this.loadRecentDetections();
+        this.loadRealtimeAttendance();
         this.loadOnLeaveEmployees();
 
         // Auto-refresh every 2 seconds
         setInterval(() => {
             this.loadDashboardStats();
             this.loadRecentDetections();
+            this.loadRealtimeAttendance();
             this.loadOnLeaveEmployees();
         }, 2000);
+    }
+
+    // ==================== REAL-TIME ATTENDANCE PANEL ====================
+    realtimeStatusClass(status) {
+        const s = (status || '').toUpperCase();
+        if (s === 'PRESENT') return 'ontime';
+        if (s === 'LATE' || s === 'EARLY_LEAVE') return 'late';
+        return 'neutral';
+    }
+
+    realtimeBadgeLabel(status) {
+        const s = (status || '').toUpperCase();
+        if (s === 'PRESENT') return this.translate('rtStatusOnTime', 'ON TIME');
+        if (s === 'LATE') return this.translate('rtStatusLate', 'LATE');
+        return this.getStatusLabel(s);
+    }
+
+    rtItemHtml(rec) {
+        const cls = this.realtimeStatusClass(rec.status);
+        const photo = rec.employeePhotoUrl
+            ? `<img src="${rec.employeePhotoUrl}" class="rt-photo" alt="employee">`
+            : `<div class="rt-photo rt-photo-empty"><i class="fas fa-user"></i></div>`;
+        const capture = rec.faceImageUrl
+            ? `<img src="${rec.faceImageUrl}" class="rt-photo" alt="capture">`
+            : `<div class="rt-photo rt-photo-empty"><i class="fas fa-camera"></i></div>`;
+        return `
+            <div class="rt-photos">
+                <div class="rt-photo-cap">${photo}<span>${this.translate('rtEmployee', 'Employee')}</span></div>
+                <div class="rt-photo-cap">${capture}<span>${this.translate('rtCapture', 'Capture')}</span></div>
+            </div>
+            <div class="rt-info">
+                <div class="rt-name">${rec.employeeName}</div>
+                <div class="rt-meta">${rec.employeeId} &bull; ${this.formatTime(rec.checkIn)} &bull; ${rec.direction || 'IN'} &bull; ${rec.similarityScore ? rec.similarityScore.toFixed(0) + '%' : '-'}</div>
+            </div>
+            <div class="rt-badge rt-${cls}">${this.realtimeBadgeLabel(rec.status)}</div>`;
+    }
+
+    async loadRealtimeAttendance() {
+        try {
+            const response = await this.ajaxGet('/api/attendance/today');
+            if (response.success) {
+                this.renderRealtimeAttendance(response.data);
+            }
+        } catch (e) {
+            console.error('Failed to load real-time attendance:', e);
+        }
+    }
+
+    renderRealtimeAttendance(records) {
+        const container = document.getElementById('realtime-attendance');
+        if (!container) return;
+        if (!records || records.length === 0) {
+            container.innerHTML = `<div style="padding:20px;text-align:center;color:var(--hk-text-muted);">${this.translate('waitingDetections', 'Waiting for detections...')}</div>`;
+            return;
+        }
+        const sorted = [...records].sort((a, b) => new Date(b.checkIn) - new Date(a.checkIn));
+        container.innerHTML = sorted
+            .map(r => `<div class="rt-item rt-${this.realtimeStatusClass(r.status)}">${this.rtItemHtml(r)}</div>`)
+            .join('');
+    }
+
+    addRealtimeAttendance(detection) {
+        const container = document.getElementById('realtime-attendance');
+        if (!container) return;
+        const placeholder = container.querySelector('div[style*="text-align:center"]');
+        if (placeholder) container.innerHTML = '';
+        const item = document.createElement('div');
+        item.className = `rt-item rt-new rt-${this.realtimeStatusClass(detection.status)}`;
+        item.innerHTML = this.rtItemHtml({
+            employeePhotoUrl: detection.employeePhotoUrl,
+            faceImageUrl: detection.faceImageUrl,
+            employeeName: detection.employeeName,
+            employeeId: detection.employeeId,
+            checkIn: detection.timestamp,
+            direction: detection.direction,
+            similarityScore: detection.similarityScore,
+            status: detection.status
+        });
+        container.prepend(item);
+        while (container.children.length > 30) {
+            container.removeChild(container.lastChild);
+        }
     }
 
     async loadOnLeaveEmployees() {
@@ -565,9 +667,22 @@ class AttendanceApp {
 
     // ==================== LIVE VIEW PAGE ====================
     initLiveViewPage() {
+        this.initLiveSnapshot();
         this.loadTodayDetectionsForLiveView();
         // Poll for today's detections to populate the live list
         setInterval(() => this.loadTodayDetectionsForLiveView(), 2000);
+    }
+
+    // Refresh JPEG snapshots from the server — browsers can't play RTSP directly.
+    initLiveSnapshot() {
+        const images = document.querySelectorAll('img.live-snapshot');
+        if (!images.length) return;
+        setInterval(() => {
+            images.forEach(img => {
+                const base = img.dataset.src || img.src;
+                img.src = base + (base.includes('?') ? '&' : '?') + 't=' + Date.now();
+            });
+        }, 700);
     }
 
     async loadTodayDetectionsForLiveView() {
@@ -647,6 +762,10 @@ class AttendanceApp {
             e.preventDefault();
             this.saveEmployee();
         });
+
+        document.getElementById('emp-photo')?.addEventListener('change', (e) => {
+            this.previewEmployeePhoto(e.target.files[0]);
+        });
     }
 
     async loadEmployees() {
@@ -667,6 +786,11 @@ class AttendanceApp {
         tbody.innerHTML = employees.map(emp => `
             <tr>
                 <td>${emp.employeeId}</td>
+                <td>
+                    ${emp.faceImageUrl
+                        ? `<img src="${emp.faceImageUrl}" class="face-thumb" alt="face">`
+                        : '<div class="face-thumb face-thumb-empty"><i class="fas fa-user"></i></div>'}
+                </td>
                 <td>${emp.fullName}</td>
                 <td>${emp.department || '-'}</td>
                 <td>${emp.position || '-'}</td>
@@ -677,6 +801,9 @@ class AttendanceApp {
                     </span>
                 </td>
                 <td>
+                    <button class="btn btn-sm btn-secondary btn-icon" onclick="app.openCameraTargetsModal(${emp.id}, this.dataset.name)" data-name="${emp.fullName}" title="${this.translate('employees.manageCameras', 'Cameras')}">
+                        <i class="fas fa-camera"></i>
+                    </button>
                     <button class="btn btn-sm btn-secondary btn-icon" onclick="app.editEmployee(${emp.id})" title="${this.translate('editEmployee', 'Edit')}">
                         <i class="fas fa-edit"></i>
                     </button>
@@ -704,6 +831,11 @@ class AttendanceApp {
         document.getElementById('emp-email').value = employee?.email || '';
         document.getElementById('emp-phone').value = employee?.phone || '';
 
+        const photoInput = document.getElementById('emp-photo');
+        if (photoInput) photoInput.value = '';
+        this.setEmployeePhotoPreview(employee?.faceImageUrl || null);
+        this.loadCameraCheckboxes('emp-cameras');
+
         modal.classList.add('active');
     }
 
@@ -718,14 +850,24 @@ class AttendanceApp {
             phone: document.getElementById('emp-phone').value
         };
 
+        const photoInput = document.getElementById('emp-photo');
+        const photoFile = photoInput && photoInput.files.length > 0 ? photoInput.files[0] : null;
+        const cameraIds = this.getSelectedCameraIds('emp-cameras');
+
         try {
-            const response = id
-                ? await this.ajaxPut(`/api/employees/${id}`, data)
-                : await this.ajaxPost('/api/employees', data);
+            let response;
+            if (photoFile) {
+                response = await this.saveEmployeeWithPhoto(id, data, photoFile, cameraIds);
+            } else {
+                response = id
+                    ? await this.ajaxPut(`/api/employees/${id}`, data)
+                    : await this.ajaxPost('/api/employees', data);
+            }
 
             if (response.success) {
                 this.showToast(
-                    id ? this.translate('employeeUpdated', 'Employee updated') : this.translate('employeeCreated', 'Employee created'),
+                    response.message
+                        || (id ? this.translate('employeeUpdated', 'Employee updated') : this.translate('employeeCreated', 'Employee created')),
                     'success'
                 );
                 this.closeModal('employee-modal');
@@ -735,6 +877,167 @@ class AttendanceApp {
             }
         } catch (e) {
             this.showToast(this.translate('operationFailed', 'Operation failed'), 'error');
+        }
+    }
+
+    /**
+     * Save with a photo: create goes to /api/employees/with-face in one request;
+     * update saves the fields first, then pushes the photo to the selected cameras.
+     */
+    async saveEmployeeWithPhoto(id, data, photoFile, cameraIds) {
+        if (id) {
+            const updateResponse = await this.ajaxPut(`/api/employees/${id}`, data);
+            if (!updateResponse.success) {
+                return updateResponse;
+            }
+        }
+        const formData = new FormData();
+        Object.entries(data).forEach(([key, value]) => formData.append(key, value ?? ''));
+        formData.append('photo', photoFile);
+        if (cameraIds.length > 0) {
+            formData.append('cameraIds', cameraIds.join(','));
+        }
+        return await this.ajaxUpload(id ? `/api/employees/${id}/face` : '/api/employees/with-face', formData);
+    }
+
+    /** Show a local preview of the chosen employee photo file. */
+    previewEmployeePhoto(file) {
+        if (!file) {
+            const input = document.getElementById('emp-photo');
+            this.setEmployeePhotoPreview(input?.dataset?.currentUrl || null);
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => this.setEmployeePhotoPreview(e.target.result);
+        reader.readAsDataURL(file);
+    }
+
+    /** Toggle between the employee photo image and the empty placeholder. */
+    setEmployeePhotoPreview(url) {
+        const preview = document.getElementById('emp-photo-preview');
+        const placeholder = document.getElementById('emp-photo-placeholder');
+        if (!preview || !placeholder) return;
+        if (url) {
+            preview.src = url;
+            preview.style.display = '';
+            placeholder.style.display = 'none';
+        } else {
+            preview.src = '';
+            preview.style.display = 'none';
+            placeholder.style.display = '';
+        }
+    }
+
+    /** Render active cameras as checked checkboxes into a container (by id). */
+    async loadCameraCheckboxes(containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        try {
+            const response = await this.ajaxGet('/api/cameras/active');
+            const cameras = response.success ? (response.data || []) : [];
+            container.innerHTML = cameras.length > 0
+                ? cameras.map(cam => `
+                    <label class="camera-check-item">
+                        <input type="checkbox" value="${cam.id}" checked>
+                        <span>${cam.cameraName}</span>
+                    </label>
+                `).join('')
+                : `<div class="camera-check-empty">${this.translate('faceLibraryNoCameras', 'No active cameras')}</div>`;
+        } catch (e) {
+            container.innerHTML = `<div class="camera-check-empty">${this.translate('faceLibraryNoCameras', 'No active cameras')}</div>`;
+        }
+    }
+
+    /** Ids of the checked cameras in a checkbox container (by id). */
+    getSelectedCameraIds(containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return [];
+        return Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
+            .map(cb => cb.value);
+    }
+
+    // ==================== EMPLOYEE CAMERA TARGETS ====================
+    openCameraTargetsModal(employeeId, employeeName) {
+        this.cameraTargetsEmployeeId = employeeId;
+        this._cameraTargets = [];
+        const nameEl = document.getElementById('camera-targets-employee');
+        if (nameEl) nameEl.textContent = employeeName || '';
+        document.getElementById('camera-targets-modal')?.classList.add('active');
+        this.loadCameraTargets();
+    }
+
+    async loadCameraTargets() {
+        const container = document.getElementById('camera-targets-list');
+        const id = this.cameraTargetsEmployeeId;
+        if (!container || !id) return;
+        container.innerHTML = `<div class="camera-check-empty">${this.translate('employees.loading', 'Loading...')}</div>`;
+        try {
+            const response = await this.ajaxGet(`/api/employees/${id}/camera-targets`);
+            if (!response.success) {
+                throw new Error(response.message || 'Failed to load cameras');
+            }
+            const targets = response.data || [];
+            this._cameraTargets = targets;
+            container.innerHTML = targets.length > 0
+                ? targets.map((t, i) => `
+                    <div class="camera-target-row">
+                        <div class="camera-target-info">
+                            <div class="camera-target-name">${t.cameraName}</div>
+                            <div class="camera-target-meta">
+                                ${t.location ? t.location + ' &bull; ' : ''}${t.enrolledAt || ''}
+                            </div>
+                        </div>
+                        <span class="badge ${t.enrolled ? 'badge-present' : 'badge-absent'}">
+                            ${t.enrolled
+                                ? this.translate('employees.enrolled', 'Enrolled')
+                                : this.translate('employees.notEnrolled', 'Not enrolled')}
+                        </span>
+                        <div class="camera-target-actions">
+                            ${t.enrolled
+                                ? `<button class="btn btn-sm btn-secondary" onclick="app.removeEmployeeFromCamera(${i})">${this.translate('employees.removeFromCamera', 'Remove')}</button>`
+                                : `<button class="btn btn-sm btn-primary" onclick="app.sendEmployeeToCamera(${i})">${this.translate('employees.sendToCamera', 'Send')}</button>`}
+                        </div>
+                    </div>
+                `).join('')
+                : `<div class="camera-check-empty">${this.translate('faceLibraryNoCameras', 'No active cameras')}</div>`;
+        } catch (e) {
+            container.innerHTML = `<div class="camera-check-empty">${e.message || this.translate('employees.loadFailed', 'Failed to load cameras')}</div>`;
+        }
+    }
+
+    async sendEmployeeToCamera(index) {
+        const target = this._cameraTargets[index];
+        const id = this.cameraTargetsEmployeeId;
+        if (!target || !id) return;
+        try {
+            const response = await this.ajaxPost(`/api/employees/${id}/camera-targets/${target.cameraId}`, {});
+            this.showToast(response.message || this.translate('employees.sentToCamera', 'Face sent to camera'),
+                response.success ? 'success' : 'error');
+            if (response.success) {
+                this.loadCameraTargets();
+                this.loadEmployees();
+            }
+        } catch (e) {
+            this.showToast(this.translate('employees.sendFailed', 'Send failed'), 'error');
+        }
+    }
+
+    async removeEmployeeFromCamera(index) {
+        const target = this._cameraTargets[index];
+        const id = this.cameraTargetsEmployeeId;
+        if (!target || !id) return;
+        const confirmMsg = `${this.translate('employees.removeFromCameraConfirm', "Remove this employee's face from")} ${target.cameraName}?`;
+        if (!confirm(confirmMsg)) return;
+        try {
+            const response = await this.ajaxDelete(`/api/employees/${id}/camera-targets/${target.cameraId}`);
+            this.showToast(response.message || this.translate('employees.removedFromCamera', 'Face removed from camera'),
+                response.success ? 'success' : 'error');
+            if (response.success) {
+                this.loadCameraTargets();
+                this.loadEmployees();
+            }
+        } catch (e) {
+            this.showToast(this.translate('employees.removeFailed', 'Remove failed'), 'error');
         }
     }
 
@@ -760,6 +1063,150 @@ class AttendanceApp {
             }
         } catch (e) {
             this.showToast(this.translate('deleteFailed', 'Delete failed'), 'error');
+        }
+    }
+
+    // ==================== FACE CAPTURE LIBRARY PAGE ====================
+    initFaceLibraryPage() {
+        this.faceCaptures = [];
+        this.loadFaceLibraryCameras();
+        this.loadFaceCaptures();
+
+        document.getElementById('btn-refresh-captures')?.addEventListener('click', () => this.loadFaceCaptures());
+        document.getElementById('face-camera-filter')?.addEventListener('change', () => this.loadFaceCaptures());
+        document.getElementById('capture-enroll-form')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.saveCaptureEnroll();
+        });
+
+        // Refresh the grid periodically while the page is open
+        this.captureRefreshTimer = setInterval(() => this.loadFaceCaptures(), 10000);
+    }
+
+    /** Cameras for the filter dropdown. The "all cameras" label is read from the page. */
+    async loadFaceLibraryCameras() {
+        const filter = document.getElementById('face-camera-filter');
+        if (!filter) return;
+        const allLabel = filter.querySelector('option[value=""]')?.textContent
+            || this.translate('faceLibraryFilterAllCameras', 'All Cameras');
+        try {
+            const response = await this.ajaxGet('/api/cameras');
+            if (!response.success) return;
+            const cameras = response.data || [];
+            filter.innerHTML = `<option value="">${allLabel}</option>` + cameras
+                .map(cam => `<option value="${cam.id}">${cam.cameraName}</option>`)
+                .join('');
+        } catch (e) {
+            console.error('Failed to load cameras:', e);
+        }
+    }
+
+    async loadFaceCaptures() {
+        const filter = document.getElementById('face-camera-filter');
+        const cameraId = filter && filter.value ? filter.value : '';
+        try {
+            const response = await this.ajaxGet('/api/face-captures' + (cameraId ? `?cameraId=${cameraId}` : ''));
+            if (response.success) {
+                this.faceCaptures = response.data || [];
+                this.renderFaceCaptures(this.faceCaptures);
+            }
+        } catch (e) {
+            console.error('Failed to load face captures:', e);
+        }
+    }
+
+    renderFaceCaptures(captures) {
+        const grid = document.getElementById('face-capture-grid');
+        if (!grid) return;
+        if (!captures || captures.length === 0) {
+            grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--hk-text-muted);padding:30px;">${this.translate('faceLibraryNoCaptures', 'No face captures yet')}</div>`;
+            return;
+        }
+        grid.innerHTML = captures.map(c => `
+            <div class="capture-card">
+                <img class="capture-photo" src="${c.imageUrl}" alt="capture" loading="lazy">
+                <div class="capture-body">
+                    <span class="badge ${c.matched ? 'badge-present' : 'badge-absent'}" style="align-self:flex-start;">
+                        ${c.matched ? this.translate('faceLibraryMatched', 'Matched') : this.translate('faceLibraryUnknown', 'Unknown')}
+                    </span>
+                    <div class="capture-name">${c.matchedEmployeeName || c.personName || this.translate('faceLibraryUnknown', 'Unknown')}</div>
+                    <div class="capture-meta">
+                        <i class="fas fa-video"></i> ${c.cameraName || '-'}
+                        ${c.similarity != null ? ` &bull; ${Number(c.similarity).toFixed(0)}%` : ''}
+                    </div>
+                    <div class="capture-meta"><i class="far fa-clock"></i> ${this.formatTime(c.capturedAt)}</div>
+                </div>
+                <div class="capture-actions">
+                    <button class="btn btn-primary" onclick="app.openCaptureEnrollModal(${c.id})">
+                        <i class="fas fa-user-plus"></i> ${this.translate('faceLibraryAddToEmployee', 'Add to Employee')}
+                    </button>
+                    <button class="btn btn-secondary" onclick="app.deleteCapture(${c.id})" title="Delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    /** Open the "Add to Employee" modal for one capture. */
+    openCaptureEnrollModal(captureId) {
+        const capture = (this.faceCaptures || []).find(c => c.id === captureId);
+        if (!capture) return;
+
+        document.getElementById('capture-id-hidden').value = captureId;
+        const preview = document.getElementById('capture-preview');
+        if (preview) preview.src = capture.imageUrl;
+
+        document.getElementById('cap-emp-id').value = '';
+        document.getElementById('cap-emp-name').value = capture.matchedEmployeeName || capture.personName || '';
+        document.getElementById('cap-emp-dept').value = '';
+        document.getElementById('cap-emp-position').value = '';
+        document.getElementById('cap-emp-email').value = '';
+        document.getElementById('cap-emp-phone').value = '';
+
+        this.loadCameraCheckboxes('capture-cameras');
+        document.getElementById('capture-enroll-modal')?.classList.add('active');
+    }
+
+    /** Create the employee from a capture and push the photo to the selected cameras. */
+    async saveCaptureEnroll() {
+        const captureId = document.getElementById('capture-id-hidden').value;
+        const formData = new FormData();
+        formData.append('employeeId', document.getElementById('cap-emp-id').value);
+        formData.append('fullName', document.getElementById('cap-emp-name').value);
+        formData.append('department', document.getElementById('cap-emp-dept').value);
+        formData.append('position', document.getElementById('cap-emp-position').value);
+        formData.append('email', document.getElementById('cap-emp-email').value);
+        formData.append('phone', document.getElementById('cap-emp-phone').value);
+        const cameraIds = this.getSelectedCameraIds('capture-cameras');
+        if (cameraIds.length > 0) {
+            formData.append('cameraIds', cameraIds.join(','));
+        }
+
+        try {
+            const response = await this.ajaxUpload(`/api/face-captures/${captureId}/enroll`, formData);
+            if (response.success) {
+                this.showToast(response.message || this.translate('faceLibraryEnrolled', 'Employee added and face sent to camera'), 'success');
+                this.closeModal('capture-enroll-modal');
+                this.loadFaceCaptures();
+            } else {
+                this.showToast(response.message || this.translate('faceLibraryEnrollFailed', 'Could not add employee'), 'error');
+            }
+        } catch (e) {
+            this.showToast(this.translate('faceLibraryEnrollFailed', 'Could not add employee'), 'error');
+        }
+    }
+
+    async deleteCapture(captureId) {
+        if (!confirm(this.translate('faceLibraryDeleteConfirm', 'Delete this captured photo?'))) return;
+        try {
+            const response = await this.ajaxDelete(`/api/face-captures/${captureId}`);
+            if (response.success) {
+                this.showToast(this.translate('faceLibraryDeleted', 'Capture deleted'), 'success');
+                this.loadFaceCaptures();
+            }
+        } catch (e) {
+            console.error('Failed to delete capture:', e);
         }
     }
 

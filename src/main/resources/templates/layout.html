@@ -78,6 +78,18 @@
             leaveDeleteConfirm: /*[[#{leave.deleteConfirm}]]*/ 'Delete this leave record?',
             noOneOnLeave: /*[[#{dashboard.noOneOnLeave}]]*/ 'No employees on leave',
             leaveDaysRemaining: /*[[#{leave.daysRemaining}]]*/ 'remaining',
+            faceLibraryNoCaptures: /*[[#{faceLibrary.noCaptures}]]*/ 'No face captures yet',
+            faceLibraryUnknown: /*[[#{faceLibrary.unknown}]]*/ 'Unknown',
+            faceLibraryMatched: /*[[#{faceLibrary.matched}]]*/ 'Matched',
+            faceLibraryAddToEmployee: /*[[#{faceLibrary.addToEmployee}]]*/ 'Add to Employee',
+            faceLibraryDeleteConfirm: /*[[#{faceLibrary.deleteConfirm}]]*/ 'Delete this captured photo?',
+            faceLibraryDeleted: /*[[#{faceLibrary.deleted}]]*/ 'Capture deleted',
+            faceLibraryEnrolled: /*[[#{faceLibrary.enrolled}]]*/ 'Employee added and face sent to camera',
+            faceLibraryEnrollFailed: /*[[#{faceLibrary.enrollFailed}]]*/ 'Could not add employee',
+            faceLibraryNoCameras: /*[[#{faceLibrary.noCameras}]]*/ 'No active cameras',
+            faceLibraryFilterAllCameras: /*[[#{faceLibrary.filterAllCameras}]]*/ 'All Cameras',
+            employeesFormPhoto: /*[[#{employees.form.photo}]]*/ 'Photo',
+            employeesSelectCameras: /*[[#{employees.selectCameras}]]*/ 'Push to cameras',
             isRTL: /*[[${#locale.language == 'ku'}]]*/ false
         };
     </script>
@@ -89,10 +101,10 @@
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <div class="logo">
-                <img src="/images/logo.png" alt="Logo" style="height: 40px; width: auto; filter: brightness(0) invert(1);">
+                <img src="/images/logo.png" alt="Logo">
                 <span class="logo-text" th:text="#{app.name}">Kurdistan Parliament</span>
+                <span class="version" th:text="#{app.version.short}">v1.0</span>
             </div>
-            <div class="version" th:text="#{app.version}">Attendance Admin v1.0</div>
         </div>
         <nav class="sidebar-nav">
             <!-- Dashboard -->
@@ -123,6 +135,12 @@
                         <a class="nav-link" th:href="@{/employees}" th:classappend="${activePage == 'employees'} ? 'active'">
                             <i class="fas fa-user"></i>
                             <span th:text="#{nav.employees}">Employees</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" th:href="@{/face-library}" th:classappend="${activePage == 'face-library'} ? 'active'">
+                            <i class="fas fa-portrait"></i>
+                            <span th:text="#{nav.faceLibrary}">Face Library</span>
                         </a>
                     </li>
                     <li class="nav-item">

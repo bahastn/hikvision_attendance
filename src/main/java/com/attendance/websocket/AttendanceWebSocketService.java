@@ -51,6 +51,7 @@ public class AttendanceWebSocketService {
                 .similarityScore(record.getSimilarityScore())
                 .direction(record.getDirection())
                 .faceImageUrl(record.getFaceImageUrl())
+                .employeePhotoUrl(record.getEmployee().getFaceImageUrl())
                 .build();
         messagingTemplate.convertAndSend("/topic/detection", message);
     }

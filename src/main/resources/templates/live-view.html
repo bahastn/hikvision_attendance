@@ -7,16 +7,26 @@
         <div class="col-8">
             <div class="card">
                 <div class="card-header">
-                    <span class="card-title"><i class="fas fa-video icon-spacing"></i><span th:text="#{liveView.title}">Live Feed - Main Gate</span></span>
+                    <span class="card-title"><i class="fas fa-video icon-spacing"></i><span th:text="#{liveView.title}">Live Feed</span></span>
                     <span class="badge badge-present" th:text="#{liveView.live}">LIVE</span>
                 </div>
-                <div class="card-body" style="padding:0;">
-                    <div class="live-feed" style="height:500px;">
-                        <div style="text-align:center;">
+                <div class="card-body" style="padding:10px;">
+                    <div class="camera-tiles" th:if="${!#lists.isEmpty(cameras)}">
+                        <div class="camera-tile" th:each="cam : ${cameras}">
+                            <img class="live-snapshot"
+                                 th:attr="data-src=@{/api/cameras/{id}/snapshot(id=${cam.id})}"
+                                 th:src="@{/api/cameras/{id}/snapshot(id=${cam.id})}"
+                                 alt="Live camera feed"/>
+                            <div class="camera-tile-label">
+                                <span th:text="${cam.cameraName}">Camera</span>
+                                <span class="badge badge-present" th:text="#{liveView.live}">LIVE</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="live-feed" th:if="${#lists.isEmpty(cameras)}" style="height:300px;position:relative;background:#000;text-align:center;">
+                        <div style="padding-top:120px;">
                             <i class="fas fa-video" style="font-size:48px;margin-bottom:15px;display:block;color:var(--hk-border);"></i>
-                            <p th:if="${rtspUrl != null}" th:text="#{liveView.rtspStream} + ': ' + ${rtspUrl}">RTSP Stream</p>
-                            <p th:if="${rtspUrl == null}" th:text="#{liveView.noActiveCamera}">No active camera configured</p>
-                            <p style="font-size:12px;color:var(--hk-text-muted);" th:text="#{liveView.openVlc}">Open the RTSP URL in VLC to view the live stream</p>
+                            <p th:text="#{liveView.noActiveCamera}">No active camera configured</p>
                         </div>
                     </div>
                 </div>

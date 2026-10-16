@@ -91,7 +91,7 @@ public class HikvisionIsapiClient {
     public boolean testIsapiConnection(CameraConfig camera) {
         try {
             HttpResponse<String> response = send(camera, "GET",
-                    buildUrl(camera, "/ISAPI/System/deviceInfo"), null, null,
+                    buildUrl(camera, "/ISAPI/System/deviceInfo"), (byte[]) null, null,
                     HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
                 return true;
@@ -129,7 +129,7 @@ public class HikvisionIsapiClient {
     public Optional<byte[]> downloadPicture(CameraConfig camera, String urlPath) {
         try {
             String url = urlPath.startsWith("http") ? urlPath : buildUrl(camera, urlPath);
-            HttpResponse<byte[]> response = send(camera, "GET", url, null, null,
+            HttpResponse<byte[]> response = send(camera, "GET", url, (byte[]) null, null,
                     HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() == 200 && response.body() != null && response.body().length > 0) {
                 return Optional.of(response.body());
@@ -144,6 +144,318 @@ public class HikvisionIsapiClient {
     /** Take a snapshot of a channel (101 = camera 1 main stream). */
     public Optional<byte[]> snapshot(CameraConfig camera, int channel) {
         return downloadPicture(camera, "/ISAPI/Streaming/channels/" + channel + "/picture");
+    }
+
+    // ------------------------------------------------------------------
+    // Face library (FDLib) management
+    // ------------------------------------------------------------------
+
+    /** Result of an FDLib call. pid is set when the camera assigned a person ID. */
+    public static final class FaceLibResult {
+        public final boolean success;
+        public final String pid;
+        public final String message;
+
+        FaceLibResult(boolean success, String pid, String message) {
+            this.success = success;
+            this.pid = pid;
+            this.message = message;
+        }
+    }
+
+    /**
+     * Add a person with a face photo to a face library.
+     * POST /ISAPI/Intelligent/FDLib/{lib}/picture as multipart/form-data:
+     * field "FaceAppendData" (XML) + field "importImage" (JPEG).
+     * The camera answers with a {@code <PID>} element identifying the new person.
+     */
+    public FaceLibResult addFaceToLibrary(CameraConfig camera, String libId, String name,
+                                          String certificateNumber, byte[] jpeg) {
+        String url = buildUrl(camera, "/ISAPI/Intelligent/FDLib/" + libId + "/picture");
+        String xml = faceAppendXml(name, certificateNumber, null);
+        return sendFaceMultipart(camera, "POST", url, xml, jpeg);
+    }
+
+    /**
+     * Replace a person's data (and photo when jpeg != null).
+     * PUT /ISAPI/Intelligent/FDLib/{lib}/picture/{pid}. With a photo the request is
+     * multipart like the add; without a photo it is a plain XML body.
+     */
+    public FaceLibResult updateFaceInLibrary(CameraConfig camera, String libId, String pid, String name,
+                                             String certificateNumber, byte[] jpeg) {
+        String url = buildUrl(camera, "/ISAPI/Intelligent/FDLib/" + libId + "/picture/" + pid);
+        String xml = faceAppendXml(name, certificateNumber, null);
+        if (jpeg == null) {
+            try {
+                HttpResponse<String> response = send(camera, "PUT", url, xml, "application/xml",
+                        HttpResponse.BodyHandlers.ofString());
+                return parseFaceLibResponse(response.statusCode(), response.body());
+            } catch (Exception e) {
+                return new FaceLibResult(false, pid, e.getMessage());
+            }
+        }
+        return sendFaceMultipart(camera, "PUT", url, xml, jpeg);
+    }
+
+    /** Remove a person from a face library. DELETE /ISAPI/Intelligent/FDLib/{lib}/picture/{pid}. */
+    public FaceLibResult deleteFaceFromLibrary(CameraConfig camera, String libId, String pid) {
+        String url = buildUrl(camera, "/ISAPI/Intelligent/FDLib/" + libId + "/picture/" + pid);
+        try {
+            HttpResponse<String> response = send(camera, "DELETE", url, (byte[]) null, null,
+                    HttpResponse.BodyHandlers.ofString());
+            return parseFaceLibResponse(response.statusCode(), response.body());
+        } catch (Exception e) {
+            return new FaceLibResult(false, pid, e.getMessage());
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Face library search (FDSearch)
+    // ------------------------------------------------------------------
+
+    /** A person stored in a face library. The pid is camera-local; certificateNumber holds the employee ID. */
+    public static final class FaceLibPerson {
+        public final String pid;
+        public final String name;
+        public final String certificateNumber;
+
+        FaceLibPerson(String pid, String name, String certificateNumber) {
+            this.pid = pid;
+            this.name = name;
+            this.certificateNumber = certificateNumber;
+        }
+    }
+
+    /**
+     * People stored in a face library. POST /ISAPI/Intelligent/FDLib/FDSearch — the
+     * same search verified against the camera with curl. Returns one page of up to
+     * {@code maxResults} entries, or an empty list when the search fails.
+     */
+    public List<FaceLibPerson> searchFaceLibrary(CameraConfig camera, String libId, int maxResults) {
+        String body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<FDSearchDescription>"
+                + "<FDID>" + escapeXml(libId) + "</FDID>"
+                + "<startTime>1970-01-01</startTime>"
+                + "<endTime>2035-12-31</endTime>"
+                + "<searchID>1</searchID>"
+                + "<maxResults>" + maxResults + "</maxResults>"
+                + "<searchResultPosition>1</searchResultPosition>"
+                + "</FDSearchDescription>";
+        try {
+            HttpResponse<String> response = send(camera, "POST",
+                    buildUrl(camera, "/ISAPI/Intelligent/FDLib/FDSearch"),
+                    body, "application/xml", HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200 || response.body() == null) {
+                log.warn("FDSearch on {} returned HTTP {}", camera.getIpAddress(), response.statusCode());
+                return Collections.emptyList();
+            }
+            return parseFdSearch(response.body());
+        } catch (Exception e) {
+            log.warn("FDSearch failed on {}: {}", camera.getIpAddress(), e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /** Find a person by certificate number (the employee ID sent at enrollment). */
+    public Optional<FaceLibPerson> findFaceByCertificateNumber(CameraConfig camera, String libId,
+                                                               String certificateNumber) {
+        if (certificateNumber == null || certificateNumber.isBlank()) {
+            return Optional.empty();
+        }
+        String wanted = certificateNumber.trim();
+        return searchFaceLibrary(camera, libId, 100).stream()
+                .filter(p -> wanted.equals(p.certificateNumber))
+                .findFirst();
+    }
+
+    /**
+     * FDSearch answers with one PID + name + certificateNumber block per person, followed
+     * by per-person modeling status blocks that repeat PID and name. Pairing each
+     * certificateNumber with the nearest preceding PID (document order) picks out the people.
+     */
+    private List<FaceLibPerson> parseFdSearch(String xml) {
+        Map<String, FaceLibPerson> byPid = new LinkedHashMap<>();
+        Matcher m = Pattern.compile("<(PID|name|certificateNumber)>\\s*([^<]*?)\\s*</\\1>").matcher(xml);
+        String pid = null;
+        String name = null;
+        while (m.find()) {
+            String tag = m.group(1);
+            String value = m.group(2);
+            switch (tag) {
+                case "PID" -> {
+                    pid = value;
+                    name = null;
+                }
+                case "name" -> {
+                    if (pid != null && name == null) name = value;
+                }
+                case "certificateNumber" -> {
+                    if (pid != null && !value.isBlank()) {
+                        byPid.put(pid, new FaceLibPerson(pid, name, value));
+                    }
+                }
+                default -> { }
+            }
+        }
+        return new ArrayList<>(byPid.values());
+    }
+
+    // ------------------------------------------------------------------
+    // Face comparison results (FCSearch) — the camera's own match history
+    // ------------------------------------------------------------------
+
+    /** One face-comparison match recorded by the camera. */
+    public static final class FaceComparison {
+        public final String snapTime;
+        public final long snapTimeMillis;
+        public final String name;
+        public final String certificateNumber;
+        public final String pid;
+        public final Double similarity;
+        public final String facePicUrl;
+        public final String snapPicUrl;
+
+        FaceComparison(String snapTime, long snapTimeMillis, String name, String certificateNumber,
+                       String pid, Double similarity, String facePicUrl, String snapPicUrl) {
+            this.snapTime = snapTime;
+            this.snapTimeMillis = snapTimeMillis;
+            this.name = name;
+            this.certificateNumber = certificateNumber;
+            this.pid = pid;
+            this.similarity = similarity;
+            this.facePicUrl = facePicUrl;
+            this.snapPicUrl = snapPicUrl;
+        }
+    }
+
+    /**
+     * Face-comparison matches recorded on the camera. POST /ISAPI/Intelligent/FDLib/FCSearch —
+     * the same endpoint the camera's "Face Picture Comparison Result" page queries. This is the
+     * reliable way to fetch matches on firmware that does not push faceMatch events on the
+     * alertStream. One FaceComparison per captured face (the first library match in the element).
+     */
+    public List<FaceComparison> searchFaceComparisons(CameraConfig camera, LocalDateTime start,
+                                                      LocalDateTime end, int maxResults) {
+        String body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<FCSearchDescription>"
+                + "<searchID>" + Math.abs(RANDOM.nextLong()) + "</searchID>"
+                + "<maxResults>" + maxResults + "</maxResults>"
+                + "<searchResultPosition>1</searchResultPosition>"
+                + "<startTime>" + start.format(ISO_FMT) + "</startTime>"
+                + "<endTime>" + end.format(ISO_FMT) + "</endTime>"
+                + "</FCSearchDescription>";
+        try {
+            HttpResponse<String> response = send(camera, "POST",
+                    buildUrl(camera, "/ISAPI/Intelligent/FDLib/FCSearch"),
+                    body, "application/xml", HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200 || response.body() == null) {
+                log.warn("FCSearch on {} returned HTTP {}", camera.getIpAddress(), response.statusCode());
+                return Collections.emptyList();
+            }
+            return parseFcSearchResult(response.body());
+        } catch (Exception e) {
+            log.warn("FCSearch failed on {}: {}", camera.getIpAddress(), e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private List<FaceComparison> parseFcSearchResult(String xml) {
+        List<FaceComparison> out = new ArrayList<>();
+        // One chunk per captured face. The person's fields appear before the
+        // PersonInfoExtendList block, so the first occurrence in a chunk is the person.
+        for (String chunk : xml.split("<MatchElement>")) {
+            if (!chunk.contains("</MatchElement>")) continue;
+            String name = findRegex(chunk, "<name>\\s*([^<]+?)\\s*</name>");
+            String cert = findRegex(chunk, "<certificateNumber>\\s*([^<]*?)\\s*</certificateNumber>");
+            String pid = findRegex(chunk, "<PID>\\s*([^<\\s]+)\\s*</PID>");
+            Double similarity = parseDouble(findRegex(chunk, "<similarity>\\s*([^<]+?)\\s*</similarity>"));
+            String snapTime = findRegex(chunk, "<snapTime>\\s*([^<]+?)\\s*</snapTime>");
+            if ((name == null && cert == null) || snapTime == null) continue; // no library match / no time
+            Long millis = parseTime(snapTime);
+            if (millis == null) continue;
+            String facePic = unescapeXml(findRegex(chunk, "<facePicURL>\\s*([^<]+?)\\s*</facePicURL>"));
+            String snapPic = unescapeXml(findRegex(chunk, "<snapPicURL>\\s*([^<]+?)\\s*</snapPicURL>"));
+            out.add(new FaceComparison(snapTime, millis, name, cert, pid, similarity, facePic, snapPic));
+        }
+        return out;
+    }
+
+    private static String unescapeXml(String s) {
+        if (s == null) return null;
+        return s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+                .replace("&quot;", "\"").replace("&apos;", "'");
+    }
+
+    private FaceLibResult sendFaceMultipart(CameraConfig camera, String method, String url,
+                                            String faceAppendXml, byte[] jpeg) {
+        try {
+            String boundary = "----hik" + Long.toHexString(RANDOM.nextLong()).replace('-', 'a');
+            byte[] body = buildMultipart(boundary, faceAppendXml, jpeg);
+            HttpResponse<String> response = send(camera, method, url, body,
+                    "multipart/form-data; boundary=" + boundary, HttpResponse.BodyHandlers.ofString());
+            return parseFaceLibResponse(response.statusCode(), response.body());
+        } catch (Exception e) {
+            return new FaceLibResult(false, null, e.getMessage());
+        }
+    }
+
+    private String faceAppendXml(String name, String certificateNumber, String sex) {
+        StringBuilder sb = new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+        sb.append("<FaceAppendData>");
+        sb.append("<name>").append(escapeXml(name)).append("</name>");
+        sb.append("<bornTime>2000-01-01</bornTime>");
+        if (sex != null && !sex.isBlank()) {
+            sb.append("<sex>").append(escapeXml(sex)).append("</sex>");
+        }
+        if (certificateNumber != null && !certificateNumber.isBlank()) {
+            sb.append("<certificateNumber>").append(escapeXml(certificateNumber)).append("</certificateNumber>");
+        }
+        sb.append("</FaceAppendData>");
+        return sb.toString();
+    }
+
+    /** Multipart body shaped exactly like the curl form: FaceAppendData field, then importImage file. */
+    private byte[] buildMultipart(String boundary, String faceAppendXml, byte[] jpeg) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream(jpeg.length + 1024);
+        String head = "--" + boundary + "\r\n"
+                + "Content-Disposition: form-data; name=\"FaceAppendData\"\r\n\r\n"
+                + faceAppendXml + "\r\n"
+                + "--" + boundary + "\r\n"
+                + "Content-Disposition: form-data; name=\"importImage\"; filename=\"face.jpg\"\r\n"
+                + "Content-Type: image/jpeg\r\n\r\n";
+        out.write(head.getBytes(StandardCharsets.UTF_8));
+        out.write(jpeg);
+        out.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        return out.toByteArray();
+    }
+
+    private FaceLibResult parseFaceLibResponse(int status, String body) {
+        String text = body == null ? "" : body;
+        String pid = findRegex(text, "<PID>\\s*([^<\\s]+)\\s*</PID>");
+        String statusString = findRegex(text, "<statusString>\\s*([^<]+?)\\s*</statusString>");
+        String subStatus = findRegex(text, "<subStatusCode>\\s*([^<]+?)\\s*</subStatusCode>");
+        boolean ok = status == 200
+                && (statusString == null || statusString.equalsIgnoreCase("OK"))
+                && (subStatus == null || subStatus.equalsIgnoreCase("ok"));
+        String message = ok ? "OK"
+                : "HTTP " + status + (statusString != null ? " " + statusString : "")
+                + (subStatus != null ? " (" + subStatus + ")" : "")
+                + (text.isBlank() ? "" : " — " + text.substring(0, Math.min(200, text.length())));
+        if (pid != null) {
+            return new FaceLibResult(ok, pid, message);
+        }
+        return new FaceLibResult(ok, null, message);
+    }
+
+    private static String findRegex(String text, String regex) {
+        Matcher m = Pattern.compile(regex, Pattern.CASE_INSENSITIVE).matcher(text);
+        return m.find() ? m.group(1) : null;
+    }
+
+    private static String escapeXml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                .replace("\"", "&quot;").replace("'", "&apos;");
     }
 
     /**
@@ -210,7 +522,7 @@ public class HikvisionIsapiClient {
     public void readAlertStream(CameraConfig camera, AlertHandler handler, Duration maxDuration,
                                 BooleanSupplier keepRunning) throws Exception {
         HttpResponse<InputStream> response = send(camera, "GET",
-                buildUrl(camera, "/ISAPI/Event/notification/alertStream"), null, null,
+                buildUrl(camera, "/ISAPI/Event/notification/alertStream"), (byte[]) null, null,
                 HttpResponse.BodyHandlers.ofInputStream());
         if (response.statusCode() != 200) {
             closeQuietly(response.body());
@@ -385,17 +697,27 @@ public class HikvisionIsapiClient {
             String type = eventType.toLowerCase(Locale.ROOT);
             if (type.contains("heartbeat") || type.contains("videoloss")) return null;
 
-            String employeeNo = firstOf(finder, "employeeNoString", "employeeNo", "employeeId");
+            // The person's identifier: cameras report it as employeeNoString (access events),
+            // certificateNumber / customHumanID (face match against an FDLib person) or PID.
+            String employeeNo = firstOf(finder, "employeeNoString", "employeeNo", "employeeId",
+                    "customHumanID", "certificateNumber", "cardNo", "PID", "pid");
             boolean relevant = employeeNo != null || type.contains("face") || type.contains("accesscontroller");
             if (!relevant) return null;
 
-            Long time = parseTime(firstOf(finder, "dateTime", "time"));
+            if (type.contains("facematch") && employeeNo == null) {
+                // A match event whose person field we did not recognise: log it so the
+                // real field name can be added to the list above.
+                log.info("faceMatch event without a known person field: {}",
+                        text.length() > 1000 ? text.substring(0, 1000) : text);
+            }
+
+            Long time = parseTime(firstOf(finder, "dateTime", "time", "captureTime"));
             return FaceEvent.builder()
                     .employeeNo(employeeNo)
-                    .personName(firstOf(finder, "name", "personName"))
-                    .similarity(parseDouble(firstOf(finder, "similarity")))
+                    .personName(firstOf(finder, "name", "personName", "humanName"))
+                    .similarity(parseDouble(firstOf(finder, "similarity", "similarityScore")))
                     .eventTimeMillis(time != null ? time : System.currentTimeMillis())
-                    .pictureUrl(firstOf(finder, "pictureURL", "picUrl", "snapPicURL"))
+                    .pictureUrl(firstOf(finder, "pictureURL", "picUrl", "snapPicURL", "faceURL", "captureURL"))
                     .deviceId(firstOf(finder, "deviceID", "macAddress"))
                     .build();
         } catch (Exception e) {
@@ -482,6 +804,12 @@ public class HikvisionIsapiClient {
 
     private <T> HttpResponse<T> send(CameraConfig camera, String method, String url, String body,
                                      String contentType, HttpResponse.BodyHandler<T> handler) throws Exception {
+        return send(camera, method, url,
+                body != null ? body.getBytes(StandardCharsets.UTF_8) : null, contentType, handler);
+    }
+
+    private <T> HttpResponse<T> send(CameraConfig camera, String method, String url, byte[] body,
+                                     String contentType, HttpResponse.BodyHandler<T> handler) throws Exception {
         HttpClient client = url.startsWith("https") ? httpsClient : httpClient;
 
         HttpResponse<T> response = client.send(buildRequest(url, method, body, contentType, null), handler);
@@ -510,15 +838,15 @@ public class HikvisionIsapiClient {
         return client.send(buildRequest(url, method, body, contentType, authorization), handler);
     }
 
-    private HttpRequest buildRequest(String url, String method, String body, String contentType, String auth) {
+    private HttpRequest buildRequest(String url, String method, byte[] body, String contentType, String auth) {
         HttpRequest.Builder b = HttpRequest.newBuilder()
                 .uri(URI.create(url))
-                .timeout(Duration.ofSeconds(10))
+                .timeout(Duration.ofSeconds(15))
                 .header("Accept", "*/*");
         if (auth != null) b.header("Authorization", auth);
         if (body != null) {
             b.header("Content-Type", contentType != null ? contentType : "application/xml");
-            b.method(method, HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
+            b.method(method, HttpRequest.BodyPublishers.ofByteArray(body));
         } else {
             b.method(method, HttpRequest.BodyPublishers.noBody());
         }

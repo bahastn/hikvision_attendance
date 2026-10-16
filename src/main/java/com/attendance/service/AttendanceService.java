@@ -398,6 +398,7 @@ public class AttendanceService {
                 .deviceId(record.getDeviceId())
                 .similarityScore(record.getSimilarityScore())
                 .faceImageUrl(record.getFaceImageUrl())
+                .employeePhotoUrl(record.getEmployee().getFaceImageUrl())
                 .direction(record.getDirection())
                 .notes(record.getNotes())
                 .build();

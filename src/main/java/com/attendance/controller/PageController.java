@@ -25,6 +25,7 @@ public class PageController {
         addCommonAttributes(model, request, "dashboard", "page.dashboard");
         model.addAttribute("totalEmployees", employeeService.getTotalCount());
         model.addAttribute("todayDate", LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd")));
+        model.addAttribute("cameras", cameraService.getActiveCameras());
         return "dashboard";
     }
 
@@ -39,6 +40,12 @@ public class PageController {
     public String employees(Model model, HttpServletRequest request) {
         addCommonAttributes(model, request, "employees", "page.employees");
         return "employees";
+    }
+
+    @GetMapping("/face-library")
+    public String faceLibrary(Model model, HttpServletRequest request) {
+        addCommonAttributes(model, request, "face-library", "page.faceLibrary");
+        return "face-library";
     }
 
     @GetMapping("/cameras")
@@ -56,16 +63,7 @@ public class PageController {
     @GetMapping("/live-view")
     public String liveView(Model model, HttpServletRequest request) {
         addCommonAttributes(model, request, "live-view", "page.liveView");
-        cameraService.getActiveCameras().stream().findFirst().ifPresent(cam -> {
-            model.addAttribute("camera", cam);
-            String rtspPort = cam.getRtspPort() != null ? String.valueOf(cam.getRtspPort()) : "554";
-            String username = cam.getUsername() != null ? cam.getUsername() : "admin";
-            String password = cam.getPassword() != null ? cam.getPassword() : "";
-            String auth = password.isBlank() ? username : username + ":" + password;
-            model.addAttribute("rtspUrl",
-                    "rtsp://" + auth + "@"
-                            + cam.getIpAddress() + ":" + rtspPort + "/Streaming/Channels/101");
-        });
+        model.addAttribute("cameras", cameraService.getActiveCameras());
         return "live-view";
     }
 
