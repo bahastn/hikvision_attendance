@@ -36,40 +36,10 @@
         </div>
     </div>
 
-    <!-- Row 2: Live View + Real-time Attendance (each half of the screen) -->
+    <!-- Row 2: Real-time Attendance (full width) -->
     <div class="row">
-        <!-- Live camera feeds (all cameras, compact grid) -->
-        <div class="col-6">
-            <div class="card" style="height:100%;">
-                <div class="card-header">
-                    <span class="card-title"><i class="fas fa-video icon-spacing"></i><span th:text="#{page.liveView}">Live View</span></span>
-                    <span class="badge badge-present" th:text="#{liveView.live}">LIVE</span>
-                </div>
-                <div class="card-body" style="padding:10px;">
-                    <div class="camera-tiles compact" th:if="${!#lists.isEmpty(cameras)}">
-                        <div class="camera-tile" th:each="cam : ${cameras}">
-                            <img class="live-snapshot"
-                                 th:attr="data-src=@{/api/cameras/{id}/snapshot(id=${cam.id})}"
-                                 th:src="@{/api/cameras/{id}/snapshot(id=${cam.id})}"
-                                 alt="Live camera feed"/>
-                            <div class="camera-tile-label">
-                                <span th:text="${cam.cameraName}">Camera</span>
-                                <span class="badge badge-present" th:text="#{liveView.live}">LIVE</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="live-feed" th:if="${#lists.isEmpty(cameras)}" style="height:200px;position:relative;background:#000;text-align:center;">
-                        <div style="padding-top:80px;">
-                            <i class="fas fa-video" style="font-size:32px;margin-bottom:8px;display:block;color:var(--hk-border);"></i>
-                            <p th:text="#{liveView.noActiveCamera}">No active camera configured</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
         <!-- Real-time attendance: employee photo + captured face + info, green (on time) / orange (late) -->
-        <div class="col-6">
+        <div class="col-12">
             <div class="card" style="height:100%;">
                 <div class="card-header">
                     <span class="card-title"><i class="fas fa-user-check icon-spacing"></i><span th:text="#{dashboard.realtimeAttendance}">Real-time Attendance</span></span>

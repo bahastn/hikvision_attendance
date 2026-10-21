@@ -279,6 +279,12 @@
                     <span th:text="#{header.admin}">Admin</span>
                     <i class="fas fa-chevron-down" style="font-size:10px;"></i>
                 </div>
+                <form th:action="@{/logout}" method="post" style="margin:0;">
+                    <button type="submit" class="btn btn-sm btn-secondary">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span th:text="#{header.logout}">Logout</span>
+                    </button>
+                </form>
             </div>
         </header>
         <div class="content-area">

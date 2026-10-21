@@ -248,7 +248,6 @@ class AttendanceApp {
 
     // ==================== DASHBOARD ====================
     initDashboard() {
-        this.initLiveSnapshot();
         this.loadDashboardStats();
         this.loadRecentDetections();
         this.loadRealtimeAttendance();

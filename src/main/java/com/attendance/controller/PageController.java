@@ -20,12 +20,16 @@ public class PageController {
     private final AttendanceService attendanceService;
     private final CameraService cameraService;
 
+    @GetMapping("/login")
+    public String login() {
+        return "login";
+    }
+
     @GetMapping("/")
     public String dashboard(Model model, HttpServletRequest request) {
         addCommonAttributes(model, request, "dashboard", "page.dashboard");
         model.addAttribute("totalEmployees", employeeService.getTotalCount());
         model.addAttribute("todayDate", LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd")));
-        model.addAttribute("cameras", cameraService.getActiveCameras());
         return "dashboard";
     }
 
