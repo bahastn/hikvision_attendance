@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::content})}">
+<head><title th:text="#{page.faceLibrary}">Face Capture Library</title></head>
+<body>
+<div th:fragment="content">
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">
+                <i class="fas fa-portrait icon-spacing"></i><span th:text="#{faceLibrary.title}">Face Capture Library</span>
+            </span>
+            <div style="display:flex;gap:10px;align-items:center;">
+                <select class="form-control" id="face-camera-filter" style="width:auto;min-width:180px;">
+                    <option value="" th:text="#{faceLibrary.filterAllCameras}">All Cameras</option>
+                </select>
+                <button class="btn btn-secondary" id="btn-refresh-captures">
+                    <i class="fas fa-sync-alt"></i> <span th:text="#{faceLibrary.refresh}">Refresh</span>
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-info" style="margin-bottom:15px;">
+                <i class="fas fa-info-circle"></i>
+                <span th:text="#{faceLibrary.subtitle}">Every face captured by the cameras is stored here and deleted automatically after 24 hours. Select a photo to add it as an employee.</span>
+            </div>
+            <div id="face-capture-grid" class="face-capture-grid">
+                <div style="grid-column:1/-1;text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{faceLibrary.loading}">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add to Employee modal -->
+    <div class="modal-overlay" id="capture-enroll-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 th:text="#{faceLibrary.modal.title}">Add to Employee</h3>
+                <button class="modal-close" onclick="app.closeModal('capture-enroll-modal')">&times;</button>
+            </div>
+            <form id="capture-enroll-form">
+                <div class="modal-body">
+                    <input type="hidden" id="capture-id-hidden">
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group" style="text-align:center;">
+                                <img id="capture-preview" class="capture-preview" src="" alt="capture">
+                                <div class="capture-preview-label" th:text="#{faceLibrary.selectedPhoto}">Selected photo</div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{faceLibrary.selectCameras}">Push to cameras</label>
+                                <div id="capture-cameras" class="camera-check-list"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{employees.form.employeeId}">Employee ID *</label>
+                                <input type="text" class="form-control" id="cap-emp-id" required>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{employees.form.fullName}">Full Name *</label>
+                                <input type="text" class="form-control" id="cap-emp-name" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{employees.form.department}">Department</label>
+                                <input type="text" class="form-control" id="cap-emp-dept">
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{employees.form.position}">Position</label>
+                                <input type="text" class="form-control" id="cap-emp-position">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{employees.form.email}">Email</label>
+                                <input type="email" class="form-control" id="cap-emp-email">
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{employees.form.phone}">Phone</label>
+                                <input type="text" class="form-control" id="cap-emp-phone">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('capture-enroll-modal')" th:text="#{employees.form.cancel}">Cancel</button>
+                    <button type="submit" class="btn btn-primary" th:text="#{faceLibrary.saveEmployee}">Save Employee</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+</body>
+</html>

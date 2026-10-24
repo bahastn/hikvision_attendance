@@ -581,6 +581,13 @@ class AttendanceApp {
     }
 
     async loadAttendanceRecords() {
+        // Respect the date filter if the user picked a date
+        const dateFilter = document.getElementById('date-filter');
+        const selectedDate = dateFilter && dateFilter.value ? dateFilter.value : null;
+        if (selectedDate) {
+            await this.loadAttendanceByDate(selectedDate);
+            return;
+        }
         try {
             const response = await this.ajaxGet('/api/attendance/today');
             if (response.success) {
@@ -611,16 +618,19 @@ class AttendanceApp {
             return;
         }
 
-        tbody.innerHTML = records.map(record => `
-            <tr data-employee-id="${record.employeeId}" data-name="${record.employeeName.toLowerCase()}">
+        tbody.innerHTML = records.map(record => {
+            const name = record.employeeName || '-';
+            const status = record.status || 'PRESENT';
+            return `
+            <tr data-employee-id="${record.employeeId}" data-name="${name.toLowerCase()}">
                 <td>${record.employeeId}</td>
-                <td>${record.employeeName}</td>
+                <td>${name}</td>
                 <td>${record.department || '-'}</td>
                 <td>${record.attendanceDate}</td>
                 <td>${this.formatTime(record.checkIn)}</td>
                 <td>${record.checkOut ? this.formatTime(record.checkOut) : '-'}</td>
                 <td>${record.workHours ? record.workHours.toFixed(2) + 'h' : '-'}</td>
-                <td><span class="badge badge-${record.status.toLowerCase()}">${this.getStatusLabel(record.status)}</span></td>
+                <td><span class="badge badge-${status.toLowerCase()}">${this.getStatusLabel(status)}</span></td>
                 <td>
                     <button class="btn btn-sm btn-secondary btn-icon" onclick="app.manualCheckout(${record.id})"
                         ${record.checkOut ? 'disabled' : ''} title="${this.translate('checkOutSuccess', 'Check Out')}">
@@ -628,7 +638,8 @@ class AttendanceApp {
                     </button>
                 </td>
             </tr>
-        `).join('');
+        `;
+        }).join('');
     }
 
     filterAttendanceTable(query) {
