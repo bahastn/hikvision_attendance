@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::content})}">
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::sidebar})}">
 <head><title th:text="#{page.shiftSchedule}">Shift Schedule</title></head>
 <body>
-<div th:fragment="content">
+<div th:fragment="sidebar">
     <div class="card">
         <div class="card-header">
             <span class="card-title"><i class="fas fa-calendar-check icon-spacing"></i><span th:text="#{shiftSchedule.title}">Shift Schedules</span></span>

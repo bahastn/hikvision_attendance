@@ -16,6 +16,19 @@ class AttendanceApp {
         return this.t[key] || fallback || key;
     }
 
+    /**
+     * Display name for an employee object: Kurdish name when the UI is in Kurdish
+     * (RTL), English otherwise. Falls back to the other when the preferred one
+     * is empty, then to a plain dash.
+     */
+    displayName(emp) {
+        if (!emp) return '-';
+        const kurdish = this.t.isRTL;
+        const primary = kurdish ? emp.fullNameKurdish : emp.fullName;
+        const fallback = kurdish ? emp.fullName : emp.fullNameKurdish;
+        return primary || fallback || '-';
+    }
+
     init() {
         this.connectWebSocket();
         this.initNavigation();
@@ -32,6 +45,8 @@ class AttendanceApp {
             this.initEmployeesPage();
         } else if (this.currentPage === '/face-library') {
             this.initFaceLibraryPage();
+        } else if (this.currentPage === '/camera-sync') {
+            this.initCameraSyncPage();
         } else if (this.currentPage === '/cameras') {
             this.initCamerasPage();
         } else if (this.currentPage === '/live-view') {
@@ -678,6 +693,7 @@ class AttendanceApp {
     // ==================== LIVE VIEW PAGE ====================
     initLiveViewPage() {
         this.initLiveSnapshot();
+        this.initLiveViewControls();
         this.loadTodayDetectionsForLiveView();
         // Poll for today's detections to populate the live list
         setInterval(() => this.loadTodayDetectionsForLiveView(), 2000);
@@ -685,14 +701,106 @@ class AttendanceApp {
 
     // Refresh JPEG snapshots from the server — browsers can't play RTSP directly.
     initLiveSnapshot() {
-        const images = document.querySelectorAll('img.live-snapshot');
-        if (!images.length) return;
         setInterval(() => {
-            images.forEach(img => {
-                const base = img.dataset.src || img.src;
+            document.querySelectorAll('img.live-snapshot').forEach(img => {
+                const base = img.dataset.src;
+                if (!base) return;
                 img.src = base + (base.includes('?') ? '&' : '?') + 't=' + Date.now();
             });
         }, 700);
+    }
+
+    // Tile resize slider + fullscreen camera viewer with camera switching.
+    initLiveViewControls() {
+        const tiles = Array.from(document.querySelectorAll('.camera-tile'));
+        this.fsOverlay = document.getElementById('camera-fullscreen');
+        if (!tiles.length || !this.fsOverlay) return;
+
+        this.liveCameras = tiles.map(tile => ({
+            name: tile.querySelector('.camera-tile-label span')?.textContent?.trim() || 'Camera',
+            src: tile.querySelector('img.live-snapshot')?.dataset.src || ''
+        }));
+        this.fsIndex = 0;
+        this.fsImg = document.getElementById('fullscreen-img');
+        this.fsSelect = document.getElementById('fs-camera-select');
+
+        // --- Resizable tiles ---
+        const slider = document.getElementById('tile-size-slider');
+        const applyTileSize = (value) => tiles.forEach(t => t.style.height = value + 'px');
+        if (slider) {
+            const saved = localStorage.getItem('liveViewTileSize');
+            if (saved) {
+                slider.value = saved;
+                applyTileSize(saved);
+            }
+            slider.addEventListener('input', () => {
+                applyTileSize(slider.value);
+                localStorage.setItem('liveViewTileSize', slider.value);
+            });
+        }
+
+        // --- Fullscreen viewer ---
+        if (this.fsSelect) {
+            this.fsSelect.innerHTML = this.liveCameras
+                .map((cam, i) => `<option value="${i}">${cam.name}</option>`)
+                .join('');
+            this.fsSelect.addEventListener('change', () => this.showCameraFullscreen(parseInt(this.fsSelect.value, 10)));
+        }
+
+        tiles.forEach((tile, i) => {
+            tile.querySelector('.tile-fullscreen-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.openCameraFullscreen(i);
+            });
+        });
+
+        document.getElementById('fs-close')?.addEventListener('click', () => this.closeCameraFullscreen());
+        document.getElementById('fs-prev')?.addEventListener('click', () => this.stepCameraFullscreen(-1));
+        document.getElementById('fs-next')?.addEventListener('click', () => this.stepCameraFullscreen(1));
+
+        document.addEventListener('keydown', (e) => {
+            if (this.fsOverlay.style.display === 'none') return;
+            if (e.key === 'Escape') this.closeCameraFullscreen();
+            else if (e.key === 'ArrowLeft') this.stepCameraFullscreen(-1);
+            else if (e.key === 'ArrowRight') this.stepCameraFullscreen(1);
+        });
+
+        // Close the overlay when the user exits browser fullscreen (e.g. Esc)
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement && this.fsOverlay.style.display !== 'none') {
+                this.fsOverlay.style.display = 'none';
+            }
+        });
+    }
+
+    openCameraFullscreen(index) {
+        this.fsOverlay.style.display = 'flex';
+        this.showCameraFullscreen(index);
+        if (this.fsOverlay.requestFullscreen) {
+            this.fsOverlay.requestFullscreen().catch(() => {});
+        }
+    }
+
+    showCameraFullscreen(index) {
+        if (!this.liveCameras.length) return;
+        this.fsIndex = (index + this.liveCameras.length) % this.liveCameras.length;
+        const cam = this.liveCameras[this.fsIndex];
+        this.fsImg.dataset.src = cam.src;
+        this.fsImg.src = cam.src + (cam.src.includes('?') ? '&' : '?') + 't=' + Date.now();
+        const title = document.getElementById('fs-title');
+        if (title) title.textContent = cam.name;
+        if (this.fsSelect) this.fsSelect.value = this.fsIndex;
+    }
+
+    stepCameraFullscreen(step) {
+        this.showCameraFullscreen(this.fsIndex + step);
+    }
+
+    closeCameraFullscreen() {
+        if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+        }
+        this.fsOverlay.style.display = 'none';
     }
 
     async loadTodayDetectionsForLiveView() {
@@ -801,7 +909,7 @@ class AttendanceApp {
                         ? `<img src="${emp.faceImageUrl}" class="face-thumb" alt="face">`
                         : '<div class="face-thumb face-thumb-empty"><i class="fas fa-user"></i></div>'}
                 </td>
-                <td>${emp.fullName}</td>
+                <td>${this.displayName(emp)}</td>
                 <td>${emp.department || '-'}</td>
                 <td>${emp.position || '-'}</td>
                 <td>${emp.email || '-'}</td>
@@ -811,12 +919,24 @@ class AttendanceApp {
                     </span>
                 </td>
                 <td>
-                    <button class="btn btn-sm btn-secondary btn-icon" onclick="app.openCameraTargetsModal(${emp.id}, this.dataset.name)" data-name="${emp.fullName}" title="${this.translate('employees.manageCameras', 'Cameras')}">
+                    ${emp.faceCameras && emp.faceCameras.length
+                        ? emp.faceCameras.map(name => `<span class="badge badge-leave">${name}</span>`).join(' ')
+                        : '-'}
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-secondary btn-icon" onclick="app.openCameraTargetsModal(${emp.id}, this.dataset.name)" data-name="${this.displayName(emp)}" title="${this.translate('employees.manageCameras', 'Cameras')}">
                         <i class="fas fa-camera"></i>
                     </button>
                     <button class="btn btn-sm btn-secondary btn-icon" onclick="app.editEmployee(${emp.id})" title="${this.translate('editEmployee', 'Edit')}">
                         <i class="fas fa-edit"></i>
                     </button>
+                    ${emp.isActive
+                        ? `<button class="btn btn-sm btn-warning btn-icon" onclick="app.deactivateEmployee(${emp.id})" title="${this.translate('employees.deactivate', 'Deactivate')}">
+                            <i class="fas fa-user-slash"></i>
+                        </button>`
+                        : `<button class="btn btn-sm btn-success btn-icon" onclick="app.activateEmployee(${emp.id})" title="${this.translate('employees.activate', 'Activate')}">
+                            <i class="fas fa-user-check"></i>
+                        </button>`}
                     <button class="btn btn-sm btn-secondary btn-icon" onclick="app.deleteEmployee(${emp.id})" title="${this.translate('deleteFailed', 'Delete')}">
                         <i class="fas fa-trash"></i>
                     </button>
@@ -825,7 +945,7 @@ class AttendanceApp {
         `).join('');
     }
 
-    openEmployeeModal(employee = null) {
+    async openEmployeeModal(employee = null) {
         const modal = document.getElementById('employee-modal');
         const title = document.getElementById('modal-title');
         const form = document.getElementById('employee-form');
@@ -836,6 +956,7 @@ class AttendanceApp {
         document.getElementById('employee-id-hidden').value = employee?.id || '';
         document.getElementById('emp-id').value = employee?.employeeId || '';
         document.getElementById('emp-name').value = employee?.fullName || '';
+        document.getElementById('emp-name-kurdish').value = employee?.fullNameKurdish || '';
         document.getElementById('emp-dept').value = employee?.department || '';
         document.getElementById('emp-position').value = employee?.position || '';
         document.getElementById('emp-email').value = employee?.email || '';
@@ -844,7 +965,13 @@ class AttendanceApp {
         const photoInput = document.getElementById('emp-photo');
         if (photoInput) photoInput.value = '';
         this.setEmployeePhotoPreview(employee?.faceImageUrl || null);
-        this.loadCameraCheckboxes('emp-cameras');
+        if (employee) {
+            // When editing, pre-check only the cameras that already have the face,
+            // so saving with a new photo does not push it to every camera.
+            this.loadCameraCheckboxes('emp-cameras', await this.getEnrolledCameraIds(employee.id));
+        } else {
+            this.loadCameraCheckboxes('emp-cameras');
+        }
 
         modal.classList.add('active');
     }
@@ -854,6 +981,7 @@ class AttendanceApp {
         const data = {
             employeeId: document.getElementById('emp-id').value,
             fullName: document.getElementById('emp-name').value,
+            fullNameKurdish: document.getElementById('emp-name-kurdish').value,
             department: document.getElementById('emp-dept').value,
             position: document.getElementById('emp-position').value,
             email: document.getElementById('emp-email').value,
@@ -938,17 +1066,32 @@ class AttendanceApp {
         }
     }
 
-    /** Render active cameras as checked checkboxes into a container (by id). */
-    async loadCameraCheckboxes(containerId) {
+    /** Camera ids where the employee's face is already enrolled (null when unknown). */
+    async getEnrolledCameraIds(employeeId) {
+        try {
+            const response = await this.ajaxGet(`/api/employees/${employeeId}/camera-targets`);
+            if (response.success) {
+                return (response.data || []).filter(t => t.enrolled).map(t => String(t.cameraId));
+            }
+        } catch (e) {
+            console.warn('Could not load enrolled cameras:', e);
+        }
+        return null;
+    }
+
+    /** Render active cameras as checkboxes into a container (by id). All checked by default;
+     *  pass checkedIds (array of string ids) to control which ones start checked. */
+    async loadCameraCheckboxes(containerId, checkedIds = null) {
         const container = document.getElementById(containerId);
         if (!container) return;
         try {
             const response = await this.ajaxGet('/api/cameras/active');
             const cameras = response.success ? (response.data || []) : [];
+            const isChecked = (cam) => checkedIds === null || checkedIds.includes(String(cam.id));
             container.innerHTML = cameras.length > 0
                 ? cameras.map(cam => `
                     <label class="camera-check-item">
-                        <input type="checkbox" value="${cam.id}" checked>
+                        <input type="checkbox" value="${cam.id}" ${isChecked(cam) ? 'checked' : ''}>
                         <span>${cam.cameraName}</span>
                     </label>
                 `).join('')
@@ -1076,6 +1219,35 @@ class AttendanceApp {
         }
     }
 
+    async activateEmployee(id) {
+        try {
+            const response = await this.ajaxPost(`/api/employees/${id}/activate`, {});
+            if (response.success) {
+                this.showToast(response.message || this.translate('employees.activated', 'Employee activated'), 'success');
+                this.loadEmployees();
+            } else {
+                this.showToast(response.message || this.translate('employees.activateFailed', 'Activation failed'), 'error');
+            }
+        } catch (e) {
+            this.showToast(this.translate('employees.activateFailed', 'Activation failed'), 'error');
+        }
+    }
+
+    async deactivateEmployee(id) {
+        if (!confirm(this.translate('employees.deactivateConfirm', 'Deactivate this employee? Their face will be removed from all cameras.'))) return;
+        try {
+            const response = await this.ajaxPost(`/api/employees/${id}/deactivate`, {});
+            if (response.success) {
+                this.showToast(response.message || this.translate('employees.deactivated', 'Employee deactivated'), 'success');
+                this.loadEmployees();
+            } else {
+                this.showToast(response.message || this.translate('employees.deactivateFailed', 'Deactivation failed'), 'error');
+            }
+        } catch (e) {
+            this.showToast(this.translate('employees.deactivateFailed', 'Deactivation failed'), 'error');
+        }
+    }
+
     // ==================== FACE CAPTURE LIBRARY PAGE ====================
     initFaceLibraryPage() {
         this.faceCaptures = [];
@@ -1169,6 +1341,7 @@ class AttendanceApp {
 
         document.getElementById('cap-emp-id').value = '';
         document.getElementById('cap-emp-name').value = capture.matchedEmployeeName || capture.personName || '';
+        document.getElementById('cap-emp-name-kurdish').value = '';
         document.getElementById('cap-emp-dept').value = '';
         document.getElementById('cap-emp-position').value = '';
         document.getElementById('cap-emp-email').value = '';
@@ -1184,6 +1357,7 @@ class AttendanceApp {
         const formData = new FormData();
         formData.append('employeeId', document.getElementById('cap-emp-id').value);
         formData.append('fullName', document.getElementById('cap-emp-name').value);
+        formData.append('fullNameKurdish', document.getElementById('cap-emp-name-kurdish').value);
         formData.append('department', document.getElementById('cap-emp-dept').value);
         formData.append('position', document.getElementById('cap-emp-position').value);
         formData.append('email', document.getElementById('cap-emp-email').value);
@@ -1217,6 +1391,196 @@ class AttendanceApp {
             }
         } catch (e) {
             console.error('Failed to delete capture:', e);
+        }
+    }
+
+    // ==================== CAMERA FACE SYNC PAGE ====================
+    initCameraSyncPage() {
+        this.faceLibPeople = [];
+        this.selectedCameraId = null;
+
+        const cameraSelect = document.getElementById('sync-camera-select');
+        const btnLoad = document.getElementById('btn-load-face-lib');
+        const btnSync = document.getElementById('btn-sync-face-lib');
+        const btnSyncAll = document.getElementById('btn-sync-all');
+
+        cameraSelect?.addEventListener('change', () => {
+            this.selectedCameraId = cameraSelect.value || null;
+            const has = !!this.selectedCameraId;
+            if (btnLoad) btnLoad.disabled = !has;
+            if (btnSync) btnSync.disabled = !has;
+            if (!has) {
+                document.getElementById('face-lib-table-container').innerHTML =
+                    `<div style="text-align:center;color:var(--hk-text-muted);padding:30px;">${this.translate('cameraSyncNoCamera', 'Select a camera and click Load to see its face library.')}</div>`;
+                document.getElementById('sync-stats').style.display = 'none';
+            }
+        });
+
+        btnLoad?.addEventListener('click', () => this.loadCameraFaceLibrary());
+        btnSync?.addEventListener('click', () => this.syncCameraFaceLibrary());
+        btnSyncAll?.addEventListener('click', () => this.syncAllCameras());
+    }
+
+    async loadCameraFaceLibrary() {
+        if (!this.selectedCameraId) return;
+        const container = document.getElementById('face-lib-table-container');
+        container.innerHTML = `<div style="text-align:center;color:var(--hk-text-muted);padding:30px;">${this.translate('loading', 'Loading...')}</div>`;
+        try {
+            const response = await this.ajaxGet(`/api/cameras/${this.selectedCameraId}/face-library`);
+            if (response.success && response.data) {
+                this.faceLibPeople = response.data;
+                this.renderFaceLibTable(this.faceLibPeople);
+                this.updateSyncStats(this.faceLibPeople);
+            } else {
+                container.innerHTML = `<div style="text-align:center;color:var(--hk-danger,#dc3545);padding:30px;">${response.message || this.translate('cameraSyncLoadFailed', 'Could not load face library')}</div>`;
+            }
+        } catch (e) {
+            container.innerHTML = `<div style="text-align:center;color:var(--hk-danger,#dc3545);padding:30px;">${this.translate('cameraSyncLoadFailed', 'Could not load face library')}</div>`;
+        }
+    }
+
+    renderFaceLibTable(people) {
+        const container = document.getElementById('face-lib-table-container');
+        if (!container) return;
+        if (!people || people.length === 0) {
+            container.innerHTML = `<div style="text-align:center;color:var(--hk-text-muted);padding:30px;">${this.translate('cameraSyncEmpty', 'Face library is empty')}</div>`;
+            return;
+        }
+        const rows = people.map(p => {
+            const statusBadge = p.inDatabase
+                ? (p.employeeActive
+                    ? `<span class="badge badge-present">${this.translate('cameraSyncInDb', 'In Database')}</span>`
+                    : `<span class="badge badge-absent">${this.translate('cameraSyncDeactivated', 'Deactivated')}</span>`)
+                : `<span class="badge badge-late">${this.translate('cameraSyncNotInDb', 'Not in DB')}</span>`;
+            return `<tr>
+                <td>${p.pid || '-'}</td>
+                <td>${p.name || '-'}</td>
+                <td>${p.certificateNumber || '-'}</td>
+                <td>${statusBadge}</td>
+                <td>${p.inDatabase ? (p.employeeName || '-') : '-'}</td>
+                <td>
+                    ${!p.inDatabase ? `<button class="btn btn-sm btn-primary" onclick="app.importPerson('${p.pid}','${p.certificateNumber || ''}')" title="${this.translate('cameraSyncImport', 'Import as Employee')}">
+                        <i class="fas fa-user-plus"></i>
+                    </button>` : ''}
+                    <button class="btn btn-sm btn-secondary" onclick="app.deleteCameraPerson('${p.pid}')" title="${this.translate('cameraSyncDeleteFromCam', 'Remove from camera')}">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            </tr>`;
+        }).join('');
+        container.innerHTML = `<div class="table-responsive"><table class="table">
+            <thead><tr>
+                <th>PID</th>
+                <th>${this.translate('cameraSyncColName', 'Name')}</th>
+                <th>${this.translate('cameraSyncColCert', 'Certificate / Emp ID')}</th>
+                <th>${this.translate('cameraSyncColStatus', 'Status')}</th>
+                <th>${this.translate('cameraSyncColDbName', 'DB Employee')}</th>
+                <th>${this.translate('cameraSyncColActions', 'Actions')}</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+        </table></div>`;
+    }
+
+    updateSyncStats(people) {
+        const stats = document.getElementById('sync-stats');
+        if (!stats) return;
+        const total = people.length;
+        const linked = people.filter(p => p.inDatabase && p.employeeActive).length;
+        const notInDb = people.filter(p => !p.inDatabase).length;
+        const deactivated = people.filter(p => p.inDatabase && !p.employeeActive).length;
+        document.getElementById('stat-total').textContent = total;
+        document.getElementById('stat-linked').textContent = linked;
+        document.getElementById('stat-imported').textContent = notInDb;
+        document.getElementById('stat-removed').textContent = deactivated;
+        stats.style.display = 'block';
+    }
+
+    async syncCameraFaceLibrary() {
+        if (!this.selectedCameraId) return;
+        const btn = document.getElementById('btn-sync-face-lib');
+        if (btn) { btn.disabled = true; btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${this.translate('cameraSyncSyncing', 'Syncing...')}`; }
+        try {
+            const response = await this.ajaxPost(`/api/cameras/${this.selectedCameraId}/face-library/sync`, {});
+            if (response.success && response.data) {
+                this.showSyncResult(response.data);
+                this.showToast(this.translate('cameraSyncDone', 'Sync completed'), 'success');
+                this.loadCameraFaceLibrary();
+            } else {
+                this.showToast(response.message || this.translate('cameraSyncFailed', 'Sync failed'), 'error');
+            }
+        } catch (e) {
+            this.showToast(this.translate('cameraSyncFailed', 'Sync failed'), 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = `<i class="fas fa-sync"></i> ${this.translate('cameraSyncSync', 'Sync')}`; }
+        }
+    }
+
+    async syncAllCameras() {
+        const btn = document.getElementById('btn-sync-all');
+        if (btn) { btn.disabled = true; btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${this.translate('cameraSyncSyncing', 'Syncing...')}`; }
+        try {
+            const response = await this.ajaxPost('/api/cameras/face-library/sync-all', {});
+            if (response.success && response.data) {
+                let allMessages = [];
+                for (const [camName, result] of Object.entries(response.data)) {
+                    allMessages.push(`<strong>${camName}</strong>: ${result.imported} imported, ${result.linked} linked, ${result.removed} removed`);
+                }
+                this.showSyncResult({ messages: allMessages });
+                this.showToast(this.translate('cameraSyncDone', 'Sync completed'), 'success');
+                if (this.selectedCameraId) this.loadCameraFaceLibrary();
+            } else {
+                this.showToast(response.message || this.translate('cameraSyncFailed', 'Sync failed'), 'error');
+            }
+        } catch (e) {
+            this.showToast(this.translate('cameraSyncFailed', 'Sync failed'), 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = `<i class="fas fa-cloud-download-alt"></i> ${this.translate('cameraSyncSyncAll', 'Sync All')}`; }
+        }
+    }
+
+    showSyncResult(result) {
+        const panel = document.getElementById('sync-result-panel');
+        if (!panel) return;
+        const msgs = (result.messages || []).map(m => `<li>${m}</li>`).join('');
+        const summary = result.imported !== undefined
+            ? `<strong>${result.imported}</strong> imported, <strong>${result.linked}</strong> linked, <strong>${result.removed}</strong> removed, <strong>${result.skipped}</strong> skipped`
+            : '';
+        panel.innerHTML = `<div class="alert alert-success" style="margin-bottom:0;">
+            <i class="fas fa-check-circle"></i> ${summary}
+            ${msgs ? `<ul style="margin-top:8px;margin-bottom:0;padding-left:20px;">${msgs}</ul>` : ''}
+        </div>`;
+        panel.style.display = 'block';
+    }
+
+    /** Import a single person from the camera as an employee (calls the full sync which handles it). */
+    async importPerson(pid, certNumber) {
+        if (!this.selectedCameraId) return;
+        try {
+            const response = await this.ajaxPost(`/api/cameras/${this.selectedCameraId}/face-library/sync`, {});
+            if (response.success) {
+                this.showToast(this.translate('cameraSyncDone', 'Sync completed'), 'success');
+                this.loadCameraFaceLibrary();
+            } else {
+                this.showToast(response.message || this.translate('cameraSyncFailed', 'Sync failed'), 'error');
+            }
+        } catch (e) {
+            this.showToast(this.translate('cameraSyncFailed', 'Sync failed'), 'error');
+        }
+    }
+
+    async deleteCameraPerson(pid) {
+        if (!confirm(this.translate('cameraSyncDeleteConfirm', 'Remove this person from the camera face library?'))) return;
+        if (!this.selectedCameraId) return;
+        try {
+            const response = await this.ajaxDelete(`/api/cameras/${this.selectedCameraId}/face-library/${pid}`);
+            if (response.success) {
+                this.showToast(this.translate('cameraSyncDeleted', 'Person removed from camera'), 'success');
+                this.loadCameraFaceLibrary();
+            } else {
+                this.showToast(response.message || this.translate('cameraSyncDeleteFailed', 'Could not remove person'), 'error');
+            }
+        } catch (e) {
+            this.showToast(this.translate('cameraSyncDeleteFailed', 'Could not remove person'), 'error');
         }
     }
 
@@ -1717,7 +2081,7 @@ class AttendanceApp {
                 response.data.forEach(emp => {
                     const opt = document.createElement('option');
                     opt.value = emp.id;
-                    opt.textContent = `${emp.employeeId} - ${emp.fullName}`;
+                    opt.textContent = `${emp.employeeId} - ${this.displayName(emp)}`;
                     select.appendChild(opt);
                 });
             }
@@ -1972,7 +2336,7 @@ class AttendanceApp {
         container.innerHTML = this.groupModalEmployees.map(emp => `
             <label style="display:flex;align-items:center;gap:8px;padding:4px 0;">
                 <input type="checkbox" class="group-employee-check" value="${emp.id}" ${selectedIds.includes(emp.id) ? 'checked' : ''}>
-                <span>${emp.employeeId} - ${emp.fullName}</span>
+                <span>${emp.employeeId} - ${this.displayName(emp)}</span>
             </label>
         `).join('');
     }

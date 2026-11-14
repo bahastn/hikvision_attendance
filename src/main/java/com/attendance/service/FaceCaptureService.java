@@ -64,7 +64,10 @@ public class FaceCaptureService {
             String filename = camera.getId() + "_" + ts + "_" + ThreadLocalRandom.current().nextInt(1000) + ".jpg";
             Files.write(dir.resolve(filename), picture);
 
-            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime capturedAt = event.getEventTimeMillis() != null
+                    ? LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(event.getEventTimeMillis()),
+                            java.time.ZoneId.systemDefault())
+                    : LocalDateTime.now();
             captureRepository.save(FaceCapture.builder()
                     .cameraId(camera.getId())
                     .cameraName(camera.getCameraName())
@@ -73,8 +76,8 @@ public class FaceCaptureService {
                     .matchedEmployeeName(employee != null ? employee.getFullName() : null)
                     .personName(event.getPersonName())
                     .similarity(event.getSimilarity())
-                    .capturedAt(now)
-                    .expiresAt(now.plusHours(retentionHours))
+                    .capturedAt(capturedAt)
+                    .expiresAt(capturedAt.plusHours(retentionHours))
                     .build());
         } catch (IOException e) {
             log.warn("Failed to store captured face: {}", e.getMessage());

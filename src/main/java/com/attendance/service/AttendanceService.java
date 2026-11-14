@@ -69,11 +69,25 @@ public class AttendanceService {
     @Transactional
     public AttendanceDTO processDetection(String employeeId, String deviceId,
                                           Double similarity, String direction, String faceImageUrl) {
+        return processDetection(employeeId, deviceId, similarity, direction, faceImageUrl, null);
+    }
+
+    /**
+     * Process a detection using the camera-reported event time when available.
+     * Falls back to the server clock when {@code eventTimeMillis} is null.
+     */
+    @Transactional
+    public AttendanceDTO processDetection(String employeeId, String deviceId,
+                                          Double similarity, String direction, String faceImageUrl,
+                                          Long eventTimeMillis) {
         Employee employee = employeeRepository.findByEmployeeId(employeeId)
                 .orElseThrow(() -> new RuntimeException("Employee not found: " + employeeId));
 
-        LocalDate today = LocalDate.now();
-        LocalDateTime now = LocalDateTime.now();
+        ZoneId zone = ZoneId.systemDefault();
+        LocalDateTime now = eventTimeMillis != null
+                ? LocalDateTime.ofInstant(Instant.ofEpochMilli(eventTimeMillis), zone)
+                : LocalDateTime.now();
+        LocalDate today = now.toLocalDate();
 
         // Deduplication check
         LocalDateTime since = now.minusSeconds(deduplicationSeconds);

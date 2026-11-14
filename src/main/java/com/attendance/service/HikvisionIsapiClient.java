@@ -209,6 +209,27 @@ public class HikvisionIsapiClient {
         }
     }
 
+    /**
+     * Download a person's face photo from a face library.
+     * GET /ISAPI/Intelligent/FDLib/{lib}/picture/{pid} returns the stored JPEG.
+     */
+    public Optional<byte[]> downloadFacePicture(CameraConfig camera, String libId, String pid) {
+        String url = buildUrl(camera, "/ISAPI/Intelligent/FDLib/" + libId + "/picture/" + pid);
+        try {
+            HttpResponse<byte[]> response = send(camera, "GET", url, (byte[]) null, null,
+                    HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() == 200 && response.body() != null && response.body().length > 0) {
+                return Optional.of(response.body());
+            }
+            log.debug("Face picture download for PID {} on {} returned HTTP {}",
+                    pid, camera.getIpAddress(), response.statusCode());
+        } catch (Exception e) {
+            log.debug("Failed to download face picture PID {} from {}: {}",
+                    pid, camera.getIpAddress(), e.getMessage());
+        }
+        return Optional.empty();
+    }
+
     // ------------------------------------------------------------------
     // Face library search (FDSearch)
     // ------------------------------------------------------------------

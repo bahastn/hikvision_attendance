@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::content})}">
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::sidebar})}">
 <head><title th:text="#{page.employees}">Employees</title></head>
 <body>
-<div th:fragment="content">
+<div th:fragment="sidebar">
     <div class="card">
         <div class="card-header">
             <span class="card-title"><i class="fas fa-users icon-spacing"></i><span th:text="#{employees.title}">Employee Management</span></span>
@@ -25,11 +25,12 @@
                             <th th:text="#{table.position}">Position</th>
                             <th th:text="#{table.email}">Email</th>
                             <th th:text="#{table.status}">Status</th>
+                            <th th:text="#{table.cameras}">Cameras</th>
                             <th th:text="#{table.actions}">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="employees-table-body">
-                        <tr><td colspan="8" style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{employees.loading}">Loading...</td></tr>
+                        <tr><td colspan="9" style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{employees.loading}">Loading...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -60,16 +61,22 @@
                 <div class="modal-body">
                     <input type="hidden" id="employee-id-hidden">
                     <div class="row">
-                        <div class="col-6">
+                        <div class="col-4">
                             <div class="form-group">
                                 <label class="form-label" th:text="#{employees.form.employeeId}">Employee ID *</label>
                                 <input type="text" class="form-control" id="emp-id" required>
                             </div>
                         </div>
-                        <div class="col-6">
+                        <div class="col-4">
                             <div class="form-group">
                                 <label class="form-label" th:text="#{employees.form.fullName}">Full Name *</label>
                                 <input type="text" class="form-control" id="emp-name" required>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{employees.form.fullNameKurdish}">Full Name (Kurdish)</label>
+                                <input type="text" class="form-control" id="emp-name-kurdish">
                             </div>
                         </div>
                     </div>

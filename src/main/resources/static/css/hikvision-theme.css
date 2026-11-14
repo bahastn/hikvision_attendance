@@ -1,4 +1,38 @@
 /* Hikvision Attendance Admin - Template Theme (matches target admin panel) */
+
+/* ==================== KURDISH FONT (UniQAIDAR_Hemin) ==================== */
+@font-face {
+    font-family: 'UniQAIDAR_Hemin';
+    src: url('/fonts/UniQAIDAR_Hemin.ttf') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'UniQAIDAR_Hemin';
+    src: url('/fonts/UniQAIDAR_Hemin.ttf') format('truetype');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'UniQAIDAR_Hemin';
+    src: url('/fonts/UniQAIDAR_Hemin.ttf') format('truetype');
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'UniQAIDAR_Hemin';
+    src: url('/fonts/UniQAIDAR_Hemin.ttf') format('truetype');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
 :root {
     /* Sidebar */
     --hk-sidebar: #4c4c4c;
@@ -46,10 +80,10 @@ body {
     overflow-x: hidden;
 }
 
-/* RTL font override for Kurdish */
-[dir="rtl"] body,
-[dir="rtl"] {
-    font-family: 'Cairo', 'Segoe UI', Tahoma, 'Noto Sans Arabic', 'Noto Sans', sans-serif;
+/* RTL font override for Kurdish — UniQAIDAR_Hemin for all Kurdish text */
+[dir="rtl"],
+[dir="rtl"] body {
+    font-family: 'UniQAIDAR_Hemin', 'Cairo', 'Segoe UI', Tahoma, 'Noto Sans Arabic', 'Noto Sans', sans-serif;
 }
 
 /* ==================== LAYOUT ==================== */
@@ -889,6 +923,126 @@ select.form-control {
     }
 }
 
+/* Live view toolbar (tile size slider) */
+.live-view-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.tile-size-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--hk-text-muted);
+    font-size: 12px;
+}
+
+.tile-size-control input[type="range"] {
+    width: 100px;
+    cursor: pointer;
+    accent-color: var(--hk-accent);
+}
+
+/* Per-tile fullscreen button */
+.tile-fullscreen-btn {
+    position: absolute;
+    top: 8px;
+    inset-inline-end: 8px;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s, background 0.2s;
+}
+
+.camera-tile:hover .tile-fullscreen-btn {
+    opacity: 1;
+}
+
+.tile-fullscreen-btn:hover {
+    background: var(--hk-accent);
+}
+
+/* Fullscreen camera overlay */
+.camera-fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.camera-fullscreen img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+.camera-fullscreen-topbar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 15px;
+    background: linear-gradient(rgba(0, 0, 0, 0.75), transparent);
+    color: #fff;
+}
+
+.fs-nav-btn {
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+.fs-nav-btn:hover {
+    background: var(--hk-accent);
+}
+
+.fs-camera-select {
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 6px;
+    padding: 7px 8px;
+    font-size: 13px;
+    max-width: 220px;
+}
+
+.fs-camera-select option {
+    color: #000;
+}
+
+.fs-title {
+    flex: 1;
+    font-weight: 600;
+    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* ==================== MODAL ==================== */
 .modal-overlay {
     display: none;
@@ -1601,4 +1755,95 @@ select.form-control {
     justify-content: center;
     color: var(--hk-text-muted);
     font-size: 28px;
+}
+
+
+/* ==================== KURDISH (RTL) FONT SIZE INCREASE ==================== */
+/* UniQAIDAR_Hemin renders small at 100% zoom — enlarge Kurdish UI text */
+[dir="rtl"] body {
+    font-size: 18px;
+}
+
+[dir="rtl"] .nav-item span {
+    font-size: 17px;
+}
+
+[dir="rtl"] .sidebar-collapse-btn {
+    font-size: 1.15rem;
+}
+
+[dir="rtl"] .sidebar-submenu .nav-link {
+    font-size: 1.05rem;
+}
+
+[dir="rtl"] .sidebar-header .logo {
+    font-size: 17px;
+}
+
+[dir="rtl"] .sidebar-footer,
+[dir="rtl"] .sync-indicator {
+    font-size: 14px;
+}
+
+[dir="rtl"] .page-title {
+    font-size: 22px;
+}
+
+[dir="rtl"] .lang-option,
+[dir="rtl"] .lang-separator,
+[dir="rtl"] .connection-status,
+[dir="rtl"] .user-menu {
+    font-size: 15px;
+}
+
+[dir="rtl"] .btn {
+    font-size: 15px;
+}
+
+[dir="rtl"] .btn-sm {
+    font-size: 14px;
+}
+
+[dir="rtl"] .form-control {
+    font-size: 16px;
+}
+
+[dir="rtl"] .form-label {
+    font-size: 15px;
+}
+
+[dir="rtl"] .data-table th,
+[dir="rtl"] .data-table td {
+    font-size: 15px;
+}
+
+[dir="rtl"] .data-table th {
+    font-size: 13px;
+}
+
+[dir="rtl"] .badge {
+    font-size: 13px;
+}
+
+[dir="rtl"] .stat-info p {
+    font-size: 15px;
+}
+
+[dir="rtl"] .card-title {
+    font-size: 18px;
+}
+
+[dir="rtl"] .alert {
+    font-size: 15px;
+}
+
+[dir="rtl"] .tab-item {
+    font-size: 16px;
+}
+
+[dir="rtl"] .camera-tile-label,
+[dir="rtl"] .modal-body,
+[dir="rtl"] .modal-header,
+[dir="rtl"] .table-container {
+    font-size: 15px;
 }

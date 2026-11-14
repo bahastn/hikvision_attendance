@@ -107,7 +107,8 @@ public class FaceEventProcessor {
                 deviceId,
                 event.getSimilarity(),
                 direction,
-                storedImagePath);
+                storedImagePath,
+                event.getEventTimeMillis());
 
         lastAcceptedByPerson.put(cooldownKey, now);
         markConnected(camera);
@@ -132,7 +133,8 @@ public class FaceEventProcessor {
         if (event.getPersonName() != null && !event.getPersonName().isBlank()) {
             String name = event.getPersonName().trim();
             return employeeRepository.findByIsActiveTrue().stream()
-                    .filter(e -> name.equalsIgnoreCase(e.getFullName()))
+                    .filter(e -> name.equalsIgnoreCase(e.getFullName())
+                            || (e.getFullNameKurdish() != null && name.equalsIgnoreCase(e.getFullNameKurdish())))
                     .findFirst();
         }
         return Optional.empty();

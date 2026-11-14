@@ -52,6 +52,13 @@ public class PageController {
         return "face-library";
     }
 
+    @GetMapping("/camera-sync")
+    public String cameraSync(Model model, HttpServletRequest request) {
+        addCommonAttributes(model, request, "camera-sync", "page.cameraSync");
+        model.addAttribute("cameras", cameraService.getActiveCameras());
+        return "camera-sync";
+    }
+
     @GetMapping("/cameras")
     public String cameras(Model model, HttpServletRequest request) {
         addCommonAttributes(model, request, "cameras", "page.cameras");

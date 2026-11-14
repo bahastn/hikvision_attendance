@@ -1,14 +1,21 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::content})}">
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::sidebar})}">
 <head><title th:text="#{page.liveView}">Live View</title></head>
 <body>
-<div th:fragment="content">
+<div th:fragment="sidebar">
     <div class="row">
         <div class="col-8">
             <div class="card">
                 <div class="card-header">
                     <span class="card-title"><i class="fas fa-video icon-spacing"></i><span th:text="#{liveView.title}">Live Feed</span></span>
-                    <span class="badge badge-present" th:text="#{liveView.live}">LIVE</span>
+                    <div class="live-view-toolbar">
+                        <span class="badge badge-present" th:text="#{liveView.live}">LIVE</span>
+                        <div class="tile-size-control" th:title="#{liveView.tileSize}">
+                            <i class="fas fa-compress"></i>
+                            <input type="range" id="tile-size-slider" min="120" max="600" step="10" value="220"/>
+                            <i class="fas fa-expand"></i>
+                        </div>
+                    </div>
                 </div>
                 <div class="card-body" style="padding:10px;">
                     <div class="camera-tiles" th:if="${!#lists.isEmpty(cameras)}">
@@ -21,6 +28,9 @@
                                 <span th:text="${cam.cameraName}">Camera</span>
                                 <span class="badge badge-present" th:text="#{liveView.live}">LIVE</span>
                             </div>
+                            <button type="button" class="tile-fullscreen-btn" th:title="#{liveView.fullscreen}">
+                                <i class="fas fa-expand"></i>
+                            </button>
                         </div>
                     </div>
                     <div class="live-feed" th:if="${#lists.isEmpty(cameras)}" style="height:300px;position:relative;background:#000;text-align:center;">
@@ -43,6 +53,23 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+    <div id="camera-fullscreen" class="camera-fullscreen" style="display:none;">
+        <img id="fullscreen-img" class="live-snapshot" alt="Live camera feed"/>
+        <div class="camera-fullscreen-topbar">
+            <button type="button" id="fs-prev" class="fs-nav-btn" th:title="#{liveView.prevCamera}">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+            <select id="fs-camera-select" class="fs-camera-select"></select>
+            <span id="fs-title" class="fs-title"></span>
+            <span class="badge badge-present" th:text="#{liveView.live}">LIVE</span>
+            <button type="button" id="fs-next" class="fs-nav-btn" th:title="#{liveView.nextCamera}">
+                <i class="fas fa-chevron-right"></i>
+            </button>
+            <button type="button" id="fs-close" class="fs-nav-btn" th:title="#{liveView.exitFullscreen}">
+                <i class="fas fa-times"></i>
+            </button>
         </div>
     </div>
 </div>

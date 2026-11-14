@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::content})}">
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::sidebar})}">
 <head><title th:text="#{page.leaves}">Leaves</title></head>
 <body>
-<div th:fragment="content">
+<div th:fragment="sidebar">
 
     <!-- Summary Cards -->
     <div class="stats-grid">

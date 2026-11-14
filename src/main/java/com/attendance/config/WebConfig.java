@@ -22,6 +22,11 @@ public class WebConfig implements WebMvcConfigurer {
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         String location = Paths.get(faceStorageDir).toAbsolutePath().normalize()
                 .toUri().toString();
+        // Spring requires the location to end with a trailing slash so that
+        // relative paths are appended correctly (e.g. .../faces/ + captures/x.jpg).
+        if (!location.endsWith("/")) {
+            location += "/";
+        }
         registry.addResourceHandler("/faces/**")
                 .addResourceLocations(location);
     }

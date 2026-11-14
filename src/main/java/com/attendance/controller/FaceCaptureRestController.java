@@ -52,6 +52,7 @@ public class FaceCaptureRestController {
             @PathVariable Long id,
             @RequestParam String employeeId,
             @RequestParam String fullName,
+            @RequestParam(required = false) String fullNameKurdish,
             @RequestParam(required = false) String department,
             @RequestParam(required = false) String position,
             @RequestParam(required = false) String email,
@@ -61,6 +62,7 @@ public class FaceCaptureRestController {
             EmployeeDTO dto = EmployeeDTO.builder()
                     .employeeId(employeeId)
                     .fullName(fullName)
+                    .fullNameKurdish(fullNameKurdish)
                     .department(department)
                     .position(position)
                     .email(email)

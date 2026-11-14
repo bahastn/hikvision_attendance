@@ -22,6 +22,9 @@ public class Employee {
     @Column(nullable = false)
     private String fullName;
 
+    @Column(name = "full_name_kurdish")
+    private String fullNameKurdish;
+
     private String department;
 
     private String position;

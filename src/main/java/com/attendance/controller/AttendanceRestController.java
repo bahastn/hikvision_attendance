@@ -1,10 +1,7 @@
 package com.attendance.controller;
 
 import com.attendance.dto.*;
-import com.attendance.service.AttendanceService;
-import com.attendance.service.CameraService;
-import com.attendance.service.EmployeeService;
-import com.attendance.service.FaceEnrollmentService;
+import com.attendance.service.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -31,6 +28,7 @@ public class AttendanceRestController {
     private final AttendanceService attendanceService;
     private final CameraService cameraService;
     private final FaceEnrollmentService faceEnrollmentService;
+    private final CameraFaceLibraryService cameraFaceLibraryService;
 
     // Employee APIs
     @GetMapping("/employees")
@@ -50,12 +48,22 @@ public class AttendanceRestController {
 
     @PostMapping("/employees")
     public ResponseEntity<ApiResponse<EmployeeDTO>> createEmployee(@RequestBody EmployeeDTO dto) {
-        return ResponseEntity.ok(ApiResponse.success("Employee created", employeeService.createEmployee(dto)));
+        try {
+            return ResponseEntity.ok(ApiResponse.success("Employee created", employeeService.createEmployee(dto)));
+        } catch (Exception e) {
+            log.warn("Creating employee failed: {}", e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Could not add employee: " + e.getMessage()));
+        }
     }
 
     @PutMapping("/employees/{id}")
     public ResponseEntity<ApiResponse<EmployeeDTO>> updateEmployee(@PathVariable Long id, @RequestBody EmployeeDTO dto) {
-        return ResponseEntity.ok(ApiResponse.success("Employee updated", employeeService.updateEmployee(id, dto)));
+        try {
+            return ResponseEntity.ok(ApiResponse.success("Employee updated", employeeService.updateEmployee(id, dto)));
+        } catch (Exception e) {
+            log.warn("Updating employee {} failed: {}", id, e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Could not update employee: " + e.getMessage()));
+        }
     }
 
     @DeleteMapping("/employees/{id}")
@@ -101,6 +109,7 @@ public class AttendanceRestController {
     public ResponseEntity<ApiResponse<EmployeeDTO>> createEmployeeWithFace(
             @RequestParam String employeeId,
             @RequestParam String fullName,
+            @RequestParam(required = false) String fullNameKurdish,
             @RequestParam(required = false) String department,
             @RequestParam(required = false) String position,
             @RequestParam(required = false) String email,
@@ -111,6 +120,7 @@ public class AttendanceRestController {
             EmployeeDTO dto = EmployeeDTO.builder()
                     .employeeId(employeeId)
                     .fullName(fullName)
+                    .fullNameKurdish(fullNameKurdish)
                     .department(department)
                     .position(position)
                     .email(email)
@@ -184,6 +194,42 @@ public class AttendanceRestController {
         } catch (Exception e) {
             log.warn("Removing face of employee {} from camera {} failed: {}", id, cameraId, e.getMessage());
             return ResponseEntity.ok(ApiResponse.error("Remove failed: " + e.getMessage()));
+        }
+    }
+
+    /** Activate an employee and push their face back to all active cameras. */
+    @PostMapping("/employees/{id}/activate")
+    public ResponseEntity<ApiResponse<EmployeeDTO>> activateEmployee(@PathVariable Long id) {
+        try {
+            return ResponseEntity.ok(ApiResponse.success("Employee activated and face sent to cameras",
+                    employeeService.activateEmployee(id)));
+        } catch (Exception e) {
+            log.warn("Activation failed for employee {}: {}", id, e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Activation failed: " + e.getMessage()));
+        }
+    }
+
+    /** Deactivate an employee and remove their face from all cameras. */
+    @PostMapping("/employees/{id}/deactivate")
+    public ResponseEntity<ApiResponse<EmployeeDTO>> deactivateEmployee(@PathVariable Long id) {
+        try {
+            return ResponseEntity.ok(ApiResponse.success("Employee deactivated and face removed from cameras",
+                    employeeService.deactivateEmployee(id)));
+        } catch (Exception e) {
+            log.warn("Deactivation failed for employee {}: {}", id, e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Deactivation failed: " + e.getMessage()));
+        }
+    }
+
+    /** Permanently delete an employee: removes face from cameras, mappings and the DB record. */
+    @DeleteMapping("/employees/{id}/permanent")
+    public ResponseEntity<ApiResponse<Void>> permanentlyDeleteEmployee(@PathVariable Long id) {
+        try {
+            employeeService.permanentlyDeleteEmployee(id);
+            return ResponseEntity.ok(ApiResponse.success("Employee permanently deleted", null));
+        } catch (Exception e) {
+            log.warn("Permanent delete failed for employee {}: {}", id, e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Delete failed: " + e.getMessage()));
         }
     }
 
@@ -292,6 +338,55 @@ public class AttendanceRestController {
                         .cacheControl(CacheControl.noStore())
                         .body(jpeg))
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    // ---- Camera face library (FDLib) sync ----
+
+    /** List every person stored in the camera's face library, with DB match info. */
+    @GetMapping("/cameras/{id}/face-library")
+    public ResponseEntity<ApiResponse<List<CameraFaceLibraryService.CameraFacePerson>>> getCameraFaceLibrary(
+            @PathVariable Long id) {
+        try {
+            return ResponseEntity.ok(ApiResponse.success(cameraFaceLibraryService.getCameraFaceLibrary(id)));
+        } catch (Exception e) {
+            log.warn("Reading face library of camera {} failed: {}", id, e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Could not read camera face library: " + e.getMessage()));
+        }
+    }
+
+    /** Sync one camera's face library with the database (import new, link existing, remove deactivated). */
+    @PostMapping("/cameras/{id}/face-library/sync")
+    public ResponseEntity<ApiResponse<CameraFaceLibraryService.SyncResult>> syncCameraFaceLibrary(
+            @PathVariable Long id) {
+        try {
+            return ResponseEntity.ok(ApiResponse.success("Sync completed",
+                    cameraFaceLibraryService.syncCameraFaceLibrary(id)));
+        } catch (Exception e) {
+            log.warn("Face library sync for camera {} failed: {}", id, e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Sync failed: " + e.getMessage()));
+        }
+    }
+
+    /** Sync every active camera's face library with the database. */
+    @PostMapping("/cameras/face-library/sync-all")
+    public ResponseEntity<ApiResponse<Map<String, CameraFaceLibraryService.SyncResult>>> syncAllCameraFaceLibraries() {
+        return ResponseEntity.ok(ApiResponse.success("Sync all completed", cameraFaceLibraryService.syncAllCameras()));
+    }
+
+    /** Remove one person from the camera's face library by PID. */
+    @DeleteMapping("/cameras/{id}/face-library/{pid}")
+    public ResponseEntity<ApiResponse<Void>> deletePersonFromCamera(@PathVariable Long id,
+                                                                    @PathVariable String pid) {
+        try {
+            boolean ok = cameraFaceLibraryService.deletePersonFromCamera(id, pid);
+            if (ok) {
+                return ResponseEntity.ok(ApiResponse.success("Person removed from camera face library", null));
+            }
+            return ResponseEntity.ok(ApiResponse.error("Could not remove person from camera"));
+        } catch (Exception e) {
+            log.warn("Deleting PID {} from camera {} failed: {}", pid, id, e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Delete failed: " + e.getMessage()));
+        }
     }
 
     /**

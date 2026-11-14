@@ -72,14 +72,23 @@ public class FaceEnrollmentService {
     /**
      * Upload the employee's photo to the face library of the selected cameras.
      * cameraIds null or empty means every active camera.
+     * When photoBytes is null the photo already stored on disk is used
+     * (used when re-activating an employee).
      */
     @Transactional
     public EnrollmentResult enrollFace(Long employeeDbId, byte[] photoBytes, List<Long> cameraIds) {
         Employee employee = employeeRepository.findById(employeeDbId)
                 .orElseThrow(() -> new RuntimeException("Employee not found"));
 
-        byte[] jpeg = toJpeg(photoBytes);
-        String imageUrl = savePhoto(employee.getId(), jpeg);
+        byte[] jpeg;
+        String imageUrl;
+        if (photoBytes != null && photoBytes.length > 0) {
+            jpeg = toJpeg(photoBytes);
+            imageUrl = savePhoto(employee.getId(), jpeg);
+        } else {
+            jpeg = loadStoredPhoto(employee);
+            imageUrl = employee.getFaceImageUrl();
+        }
 
         List<CameraConfig> cameras = (cameraIds == null || cameraIds.isEmpty())
                 ? cameraRepository.findByIsActiveTrue()
@@ -115,7 +124,7 @@ public class FaceEnrollmentService {
 
         String message;
         if (cameras.isEmpty()) {
-            message = "Photo saved. No active camera selected — the face was not pushed to any camera.";
+            message = "No active camera selected — the face was not pushed to any camera.";
         } else if (failures.isEmpty()) {
             message = "Face enrolled on " + succeeded + " camera(s)" + (storedPid != null ? " (PID " + storedPid + ")" : "");
         } else {
