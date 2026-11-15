@@ -681,6 +681,54 @@ class AttendanceApp {
         }
     }
 
+    /**
+     * Sync attendance records from cameras for the selected date range.
+     * Downloads all face-comparison matches from cameras and creates missing records.
+     */
+    async syncAttendanceFromCameras() {
+        const dateFilter = document.getElementById('date-filter');
+        const selectedDate = dateFilter && dateFilter.value ? dateFilter.value : new Date().toISOString().split('T')[0];
+        
+        // Show loading state
+        const btn = document.querySelector('button[onclick*="syncAttendanceFromCameras"]');
+        const originalText = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + this.translate('syncing', 'Syncing...');
+        }
+
+        try {
+            // Sync for the selected date (or today if no date selected)
+            const response = await this.ajaxPost(`/api/attendance/sync?startDate=${selectedDate}&endDate=${selectedDate}`);
+            
+            if (response.success) {
+                const result = response.data;
+                let message = this.translate('syncComplete', 'Sync completed');
+                if (result.imported > 0) {
+                    message += `: ${result.imported} ${this.translate('recordsImported', 'records imported')}`;
+                }
+                if (result.duplicates > 0) {
+                    message += `, ${result.duplicates} ${this.translate('duplicatesSkipped', 'duplicates skipped')}`;
+                }
+                this.showToast(message, 'success');
+                
+                // Reload the attendance table
+                this.loadAttendanceRecords();
+            } else {
+                this.showToast(response.message || this.translate('syncFailed', 'Sync failed'), 'error');
+            }
+        } catch (e) {
+            console.error('Sync failed:', e);
+            this.showToast(this.translate('syncFailed', 'Sync failed'), 'error');
+        } finally {
+            // Restore button state
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        }
+    }
+
     addDetectionToTable(detection) {
         // Refresh the table to show new detection
         if (this.currentPage === '/attendance') {
@@ -1206,16 +1254,34 @@ class AttendanceApp {
     }
 
     async deleteEmployee(id) {
-        if (!confirm(this.translate('deleteEmployeeConfirm', 'Are you sure?'))) return;
-
-        try {
-            const response = await this.ajaxDelete(`/api/employees/${id}`);
-            if (response.success) {
-                this.showToast(this.translate('employeeDeleted', 'Employee deleted'), 'success');
-                this.loadEmployees();
+        const usePermanent = confirm(this.translate('employees.deletePermanentConfirm', 'Do you want to PERMANENTLY delete this employee?\n\nClick OK for permanent delete (cannot be undone)\nClick Cancel to just deactivate'));
+        
+        if (usePermanent) {
+            if (!confirm(this.translate('employees.deletePermanentWarning', 'WARNING: This will permanently delete the employee, remove their face from all cameras, and delete all attendance records. This action CANNOT be undone!\n\nAre you absolutely sure?'))) {
+                return;
             }
-        } catch (e) {
-            this.showToast(this.translate('deleteFailed', 'Delete failed'), 'error');
+            try {
+                const response = await this.ajaxDelete(`/api/employees/${id}/permanent`);
+                if (response.success) {
+                    this.showToast(this.translate('employees.permanentlyDeleted', 'Employee permanently deleted'), 'success');
+                    this.loadEmployees();
+                } else {
+                    this.showToast(response.message || this.translate('deleteFailed', 'Delete failed'), 'error');
+                }
+            } catch (e) {
+                this.showToast(this.translate('deleteFailed', 'Delete failed'), 'error');
+            }
+        } else {
+            if (!confirm(this.translate('deleteEmployeeConfirm', 'Are you sure?'))) return;
+            try {
+                const response = await this.ajaxDelete(`/api/employees/${id}`);
+                if (response.success) {
+                    this.showToast(this.translate('employeeDeleted', 'Employee deleted'), 'success');
+                    this.loadEmployees();
+                }
+            } catch (e) {
+                this.showToast(this.translate('deleteFailed', 'Delete failed'), 'error');
+            }
         }
     }
 
@@ -1582,6 +1648,121 @@ class AttendanceApp {
         } catch (e) {
             this.showToast(this.translate('cameraSyncDeleteFailed', 'Could not remove person'), 'error');
         }
+    }
+
+    // ==================== ATTENDANCE SYNC PAGE ====================
+    
+    /**
+     * Sync attendance for a specific date range.
+     */
+    async syncAttendanceRange() {
+        const startDate = document.getElementById('sync-start-date')?.value;
+        const endDate = document.getElementById('sync-end-date')?.value;
+        
+        if (!startDate || !endDate) {
+            this.showToast(this.translate('selectDates', 'Please select start and end dates'), 'error');
+            return;
+        }
+        
+        await this.performAttendanceSync(startDate, endDate);
+    }
+    
+    /**
+     * Sync attendance for today only.
+     */
+    async syncTodayAttendance() {
+        const today = new Date().toISOString().split('T')[0];
+        await this.performAttendanceSync(today, today);
+    }
+    
+    /**
+     * Sync attendance for the last N days.
+     */
+    async syncLastDays(days) {
+        const endDate = new Date().toISOString().split('T')[0];
+        const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        
+        // Update the date inputs
+        const startInput = document.getElementById('sync-start-date');
+        const endInput = document.getElementById('sync-end-date');
+        if (startInput) startInput.value = startDate;
+        if (endInput) endInput.value = endDate;
+        
+        await this.performAttendanceSync(startDate, endDate);
+    }
+    
+    /**
+     * Perform the actual attendance sync.
+     */
+    async performAttendanceSync(startDate, endDate) {
+        const progressPanel = document.getElementById('sync-progress');
+        const resultPanel = document.getElementById('sync-result-panel');
+        const btnSync = document.getElementById('btn-sync-attendance');
+        const btnToday = document.getElementById('btn-sync-today');
+        
+        // Show progress
+        if (progressPanel) progressPanel.style.display = 'block';
+        if (resultPanel) resultPanel.style.display = 'none';
+        if (btnSync) btnSync.disabled = true;
+        if (btnToday) btnToday.disabled = true;
+        
+        try {
+            const response = await this.ajaxPost(`/api/attendance/sync?startDate=${startDate}&endDate=${endDate}`);
+            
+            if (response.success && response.data) {
+                const result = response.data;
+                this.showAttendanceSyncResult(result);
+                this.showToast(this.translate('syncComplete', 'Sync completed'), 'success');
+                
+                // Refresh attendance table if on attendance page
+                if (this.currentPage === '/attendance') {
+                    this.loadAttendanceRecords();
+                }
+            } else {
+                this.showToast(response.message || this.translate('syncFailed', 'Sync failed'), 'error');
+            }
+        } catch (e) {
+            console.error('Attendance sync failed:', e);
+            this.showToast(this.translate('syncFailed', 'Sync failed'), 'error');
+        } finally {
+            if (progressPanel) progressPanel.style.display = 'none';
+            if (btnSync) btnSync.disabled = false;
+            if (btnToday) btnToday.disabled = false;
+        }
+    }
+    
+    /**
+     * Show the attendance sync result.
+     */
+    showAttendanceSyncResult(result) {
+        const panel = document.getElementById('sync-result-panel');
+        if (!panel) return;
+        
+        const messages = (result.messages || []).slice(0, 20); // Limit to first 20 messages
+        const hasMore = (result.messages || []).length > 20;
+        
+        let html = `<div class="alert alert-success" style="margin-bottom:0;">
+            <h6 style="margin-bottom:10px;"><i class="fas fa-check-circle"></i> ${this.translate('syncResults', 'Sync Results')}</h6>
+            <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:10px;">
+                <span><strong>${result.totalFound || 0}</strong> ${this.translate('foundOnCamera', 'found on camera')}</span>
+                <span style="color:var(--hk-success,#28a745);"><strong>${result.imported || 0}</strong> ${this.translate('imported', 'imported')}</span>
+                <span style="color:var(--hk-warning,#ffc107);"><strong>${result.duplicates || 0}</strong> ${this.translate('duplicates', 'duplicates')}</span>
+                <span style="color:var(--hk-text-muted);"><strong>${result.skipped || 0}</strong> ${this.translate('skipped', 'skipped')}</span>
+            </div>`;
+        
+        if (messages.length > 0) {
+            html += `<details style="margin-top:10px;">
+                <summary style="cursor:pointer;color:var(--hk-text-muted);">${this.translate('viewDetails', 'View details')}</summary>
+                <ul style="margin-top:10px;margin-bottom:0;padding-left:20px;max-height:200px;overflow-y:auto;">
+                    ${messages.map(m => `<li style="font-size:0.85em;">${m}</li>`).join('')}
+                    ${hasMore ? `<li style="font-size:0.85em;color:var(--hk-text-muted);">... ${this.translate('andMore', 'and more')}</li>` : ''}
+                </ul>
+            </details>`;
+        }
+        
+        html += '</div>';
+        panel.innerHTML = html;
+        panel.style.display = 'block';
     }
 
     // ==================== CAMERAS PAGE ====================
@@ -2406,16 +2587,34 @@ class AttendanceApp {
     }
 
     async deleteGroup(id) {
-        if (!confirm(this.translate('groups.deleteConfirm', 'Are you sure you want to delete this group?'))) return;
-
-        try {
-            const response = await this.ajaxDelete(`/api/groups/${id}`);
-            if (response.success) {
-                this.showToast(this.translate('groups.deleted', 'Group deleted'), 'success');
-                this.loadGroups();
+        const usePermanent = confirm(this.translate('groups.deletePermanentConfirm', 'Do you want to PERMANENTLY delete this group?\n\nClick OK for permanent delete (cannot be undone)\nClick Cancel to just deactivate'));
+        
+        if (usePermanent) {
+            if (!confirm(this.translate('groups.deletePermanentWarning', 'WARNING: This will permanently delete the group and remove all employee assignments. This action CANNOT be undone!\n\nAre you absolutely sure?'))) {
+                return;
             }
-        } catch (e) {
-            this.showToast(this.translate('groups.deleteFailed', 'Delete failed'), 'error');
+            try {
+                const response = await this.ajaxDelete(`/api/groups/${id}/permanent`);
+                if (response.success) {
+                    this.showToast(this.translate('groups.permanentlyDeleted', 'Group permanently deleted'), 'success');
+                    this.loadGroups();
+                } else {
+                    this.showToast(response.message || this.translate('groups.deleteFailed', 'Delete failed'), 'error');
+                }
+            } catch (e) {
+                this.showToast(this.translate('groups.deleteFailed', 'Delete failed'), 'error');
+            }
+        } else {
+            if (!confirm(this.translate('groups.deleteConfirm', 'Are you sure you want to delete this group?'))) return;
+            try {
+                const response = await this.ajaxDelete(`/api/groups/${id}`);
+                if (response.success) {
+                    this.showToast(this.translate('groups.deleted', 'Group deleted'), 'success');
+                    this.loadGroups();
+                }
+            } catch (e) {
+                this.showToast(this.translate('groups.deleteFailed', 'Delete failed'), 'error');
+            }
         }
     }
 
@@ -2570,16 +2769,34 @@ class AttendanceApp {
     }
 
     async deleteShift(id) {
-        if (!confirm(this.translate('shifts.deleteConfirm', 'Are you sure you want to delete this shift?'))) return;
-
-        try {
-            const response = await this.ajaxDelete(`/api/shifts/${id}`);
-            if (response.success) {
-                this.showToast(this.translate('shifts.deleted', 'Shift deleted'), 'success');
-                this.loadShifts();
+        const usePermanent = confirm(this.translate('shifts.deletePermanentConfirm', 'Do you want to PERMANENTLY delete this shift?\n\nClick OK for permanent delete (cannot be undone)\nClick Cancel to just deactivate'));
+        
+        if (usePermanent) {
+            if (!confirm(this.translate('shifts.deletePermanentWarning', 'WARNING: This will permanently delete the shift and remove it from all groups. This action CANNOT be undone!\n\nAre you absolutely sure?'))) {
+                return;
             }
-        } catch (e) {
-            this.showToast(this.translate('shifts.deleteFailed', 'Delete failed'), 'error');
+            try {
+                const response = await this.ajaxDelete(`/api/shifts/${id}/permanent`);
+                if (response.success) {
+                    this.showToast(this.translate('shifts.permanentlyDeleted', 'Shift permanently deleted'), 'success');
+                    this.loadShifts();
+                } else {
+                    this.showToast(response.message || this.translate('shifts.deleteFailed', 'Delete failed'), 'error');
+                }
+            } catch (e) {
+                this.showToast(this.translate('shifts.deleteFailed', 'Delete failed'), 'error');
+            }
+        } else {
+            if (!confirm(this.translate('shifts.deleteConfirm', 'Are you sure you want to delete this shift?'))) return;
+            try {
+                const response = await this.ajaxDelete(`/api/shifts/${id}`);
+                if (response.success) {
+                    this.showToast(this.translate('shifts.deleted', 'Shift deleted'), 'success');
+                    this.loadShifts();
+                }
+            } catch (e) {
+                this.showToast(this.translate('shifts.deleteFailed', 'Delete failed'), 'error');
+            }
         }
     }
 
@@ -2713,16 +2930,34 @@ class AttendanceApp {
     }
 
     async deleteRule(id) {
-        if (!confirm(this.translate('shiftRules.deleteConfirm', 'Are you sure you want to delete this rule?'))) return;
-
-        try {
-            const response = await this.ajaxDelete(`/api/shift-rules/${id}`);
-            if (response.success) {
-                this.showToast(this.translate('shiftRules.deleted', 'Rule deleted'), 'success');
-                this.loadShiftRules();
+        const usePermanent = confirm(this.translate('shiftRules.deletePermanentConfirm', 'Do you want to PERMANENTLY delete this rule?\n\nClick OK for permanent delete (cannot be undone)\nClick Cancel to just deactivate'));
+        
+        if (usePermanent) {
+            if (!confirm(this.translate('shiftRules.deletePermanentWarning', 'WARNING: This will permanently delete the rule and remove it from all groups and schedules. This action CANNOT be undone!\n\nAre you absolutely sure?'))) {
+                return;
             }
-        } catch (e) {
-            this.showToast(this.translate('shiftRules.deleteFailed', 'Delete failed'), 'error');
+            try {
+                const response = await this.ajaxDelete(`/api/shift-rules/${id}/permanent`);
+                if (response.success) {
+                    this.showToast(this.translate('shiftRules.permanentlyDeleted', 'Rule permanently deleted'), 'success');
+                    this.loadShiftRules();
+                } else {
+                    this.showToast(response.message || this.translate('shiftRules.deleteFailed', 'Delete failed'), 'error');
+                }
+            } catch (e) {
+                this.showToast(this.translate('shiftRules.deleteFailed', 'Delete failed'), 'error');
+            }
+        } else {
+            if (!confirm(this.translate('shiftRules.deleteConfirm', 'Are you sure you want to delete this rule?'))) return;
+            try {
+                const response = await this.ajaxDelete(`/api/shift-rules/${id}`);
+                if (response.success) {
+                    this.showToast(this.translate('shiftRules.deleted', 'Rule deleted'), 'success');
+                    this.loadShiftRules();
+                }
+            } catch (e) {
+                this.showToast(this.translate('shiftRules.deleteFailed', 'Delete failed'), 'error');
+            }
         }
     }
 

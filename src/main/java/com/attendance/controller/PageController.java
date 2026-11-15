@@ -33,6 +33,13 @@ public class PageController {
         return "dashboard";
     }
 
+    @GetMapping("/attendance-sync")
+    public String attendanceSync(Model model, HttpServletRequest request) {
+        addCommonAttributes(model, request, "attendance-sync", "page.attendanceSync");
+        model.addAttribute("cameras", cameraService.getActiveCameras());
+        return "attendance-sync";
+    }
+
     @GetMapping("/attendance")
     public String attendance(Model model, HttpServletRequest request) {
         addCommonAttributes(model, request, "attendance", "page.attendance");

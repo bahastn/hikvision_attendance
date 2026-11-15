@@ -52,6 +52,21 @@ public class EmployeeGroupRestController {
         return ResponseEntity.ok(ApiResponse.success("Group deleted", null));
     }
 
+    /**
+     * Permanently delete a group. This removes all employee assignments and deletes the record.
+     * This action cannot be undone.
+     */
+    @DeleteMapping("/{id}/permanent")
+    public ResponseEntity<ApiResponse<Void>> permanentlyDeleteGroup(@PathVariable Long id) {
+        try {
+            groupService.permanentlyDeleteGroup(id);
+            return ResponseEntity.ok(ApiResponse.success("Group permanently deleted", null));
+        } catch (Exception e) {
+            log.warn("Permanent delete failed for group {}: {}", id, e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Delete failed: " + e.getMessage()));
+        }
+    }
+
     @PostMapping("/{id}/assign-employees")
     public ResponseEntity<ApiResponse<Void>> assignEmployees(@PathVariable Long id, @RequestBody List<Long> employeeIds) {
         groupService.assignEmployeesToGroup(id, employeeIds);

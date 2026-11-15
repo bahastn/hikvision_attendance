@@ -29,6 +29,7 @@ public class AttendanceRestController {
     private final CameraService cameraService;
     private final FaceEnrollmentService faceEnrollmentService;
     private final CameraFaceLibraryService cameraFaceLibraryService;
+    private final AttendanceSyncService attendanceSyncService;
 
     // Employee APIs
     @GetMapping("/employees")
@@ -423,6 +424,76 @@ public class AttendanceRestController {
             return ResponseEntity.ok(ApiResponse.success("Connection successful!", result));
         } else {
             return ResponseEntity.ok(ApiResponse.<Map<String, Object>>error("Connection failed. Check the console logs for details."));
+        }
+    }
+
+    // ---- Attendance Sync ----
+
+    /**
+     * Sync attendance records from all active cameras for a date range.
+     * Downloads all face-comparison matches from the cameras and creates
+     * missing attendance records in the database.
+     */
+    @PostMapping("/attendance/sync")
+    public ResponseEntity<ApiResponse<AttendanceSyncService.SyncResult>> syncAttendance(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        try {
+            AttendanceSyncService.SyncResult result = attendanceSyncService.syncAttendanceFromCameras(startDate, endDate);
+            return ResponseEntity.ok(ApiResponse.success("Sync completed", result));
+        } catch (Exception e) {
+            log.error("Attendance sync failed: {}", e.getMessage(), e);
+            return ResponseEntity.ok(ApiResponse.error("Sync failed: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Sync attendance records from a specific camera for a date range.
+     */
+    @PostMapping("/attendance/sync/camera/{cameraId}")
+    public ResponseEntity<ApiResponse<AttendanceSyncService.SyncResult>> syncAttendanceFromCamera(
+            @PathVariable Long cameraId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        try {
+            AttendanceSyncService.SyncResult result = attendanceSyncService.syncAttendanceFromCamera(cameraId, startDate, endDate);
+            return ResponseEntity.ok(ApiResponse.success("Sync completed", result));
+        } catch (Exception e) {
+            log.error("Attendance sync failed for camera {}: {}", cameraId, e.getMessage(), e);
+            return ResponseEntity.ok(ApiResponse.error("Sync failed: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Preview attendance records from a camera without importing them.
+     */
+    @GetMapping("/attendance/sync/preview/{cameraId}")
+    public ResponseEntity<ApiResponse<List<AttendanceSyncService.CameraAttendanceRecord>>> previewCameraAttendance(
+            @PathVariable Long cameraId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        try {
+            List<AttendanceSyncService.CameraAttendanceRecord> records = 
+                    attendanceSyncService.getCameraAttendance(cameraId, startDate, endDate);
+            return ResponseEntity.ok(ApiResponse.success(records));
+        } catch (Exception e) {
+            log.error("Failed to preview camera attendance: {}", e.getMessage(), e);
+            return ResponseEntity.ok(ApiResponse.error("Preview failed: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Quick sync for today only - useful for manual trigger.
+     */
+    @PostMapping("/attendance/sync/today")
+    public ResponseEntity<ApiResponse<AttendanceSyncService.SyncResult>> syncTodayAttendance() {
+        try {
+            LocalDate today = LocalDate.now();
+            AttendanceSyncService.SyncResult result = attendanceSyncService.syncAttendanceFromCameras(today, today);
+            return ResponseEntity.ok(ApiResponse.success("Today's attendance synced", result));
+        } catch (Exception e) {
+            log.error("Today's attendance sync failed: {}", e.getMessage(), e);
+            return ResponseEntity.ok(ApiResponse.error("Sync failed: " + e.getMessage()));
         }
     }
 }

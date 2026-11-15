@@ -51,4 +51,19 @@ public class ShiftRestController {
         shiftService.deleteShift(id);
         return ResponseEntity.ok(ApiResponse.success("Shift deleted", null));
     }
+
+    /**
+     * Permanently delete a shift. This removes the shift from all groups and deletes the record.
+     * This action cannot be undone.
+     */
+    @DeleteMapping("/{id}/permanent")
+    public ResponseEntity<ApiResponse<Void>> permanentlyDeleteShift(@PathVariable Long id) {
+        try {
+            shiftService.permanentlyDeleteShift(id);
+            return ResponseEntity.ok(ApiResponse.success("Shift permanently deleted", null));
+        } catch (Exception e) {
+            log.warn("Permanent delete failed for shift {}: {}", id, e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Delete failed: " + e.getMessage()));
+        }
+    }
 }

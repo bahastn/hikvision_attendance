@@ -52,4 +52,19 @@ public class ShiftRuleRestController {
         ruleService.deleteRule(id);
         return ResponseEntity.ok(ApiResponse.success("Shift rule deleted", null));
     }
+
+    /**
+     * Permanently delete a shift rule. This removes the rule from all groups and schedules, then deletes the record.
+     * This action cannot be undone.
+     */
+    @DeleteMapping("/{id}/permanent")
+    public ResponseEntity<ApiResponse<Void>> permanentlyDeleteRule(@PathVariable Long id) {
+        try {
+            ruleService.permanentlyDeleteRule(id);
+            return ResponseEntity.ok(ApiResponse.success("Shift rule permanently deleted", null));
+        } catch (Exception e) {
+            log.warn("Permanent delete failed for shift rule {}: {}", id, e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Delete failed: " + e.getMessage()));
+        }
+    }
 }

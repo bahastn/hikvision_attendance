@@ -85,6 +85,31 @@ public class ShiftRuleService {
         ruleRepository.save(rule);
     }
 
+    /**
+     * Permanently delete a shift rule: removes rule from all groups and schedules, then deletes the rule.
+     * This cannot be undone.
+     */
+    @Transactional
+    public void permanentlyDeleteRule(Long id) {
+        ShiftRule rule = ruleRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Shift rule not found"));
+        
+        // Remove rule from all groups
+        List<com.attendance.entity.EmployeeGroup> groups = groupRepository.findAll().stream()
+                .filter(g -> g.getShiftRule() != null && g.getShiftRule().getId().equals(id))
+                .collect(Collectors.toList());
+        groups.forEach(g -> g.setShiftRule(null));
+        groupRepository.saveAll(groups);
+        
+        // Remove rule from all schedules
+        List<com.attendance.entity.ShiftSchedule> schedules = scheduleRepository.findByRuleId(id);
+        schedules.forEach(s -> s.setRule(null));
+        scheduleRepository.saveAll(schedules);
+        
+        // Delete the rule permanently
+        ruleRepository.delete(rule);
+    }
+
     @Transactional(readOnly = true)
     public long getTotalCount() {
         return ruleRepository.countByIsActiveTrue();

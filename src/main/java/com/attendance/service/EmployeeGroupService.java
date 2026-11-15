@@ -128,6 +128,26 @@ public class EmployeeGroupService {
         groupRepository.save(group);
     }
 
+    /**
+     * Permanently delete a group: unassigns all employees and deletes the group record.
+     * This cannot be undone.
+     */
+    @Transactional
+    public void permanentlyDeleteGroup(Long id) {
+        EmployeeGroup group = groupRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Group not found"));
+        
+        // Unassign all employees from this group
+        List<Employee> employees = employeeRepository.findAll().stream()
+                .filter(e -> e.getGroup() != null && e.getGroup().getId().equals(id))
+                .collect(Collectors.toList());
+        employees.forEach(e -> e.setGroup(null));
+        employeeRepository.saveAll(employees);
+        
+        // Delete the group permanently
+        groupRepository.delete(group);
+    }
+
     @Transactional
     public void assignEmployeesToGroup(Long groupId, List<Long> employeeIds) {
         EmployeeGroup group = groupRepository.findById(groupId)

@@ -90,6 +90,24 @@ public class ShiftService {
         shiftRepository.save(shift);
     }
 
+    /**
+     * Permanently delete a shift: removes shift from all groups and deletes the shift record.
+     * This cannot be undone.
+     */
+    @Transactional
+    public void permanentlyDeleteShift(Long id) {
+        Shift shift = shiftRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Shift not found"));
+        
+        // Remove shift from all groups
+        List<com.attendance.entity.EmployeeGroup> groups = groupRepository.findByShiftId(id);
+        groups.forEach(g -> g.setShift(null));
+        groupRepository.saveAll(groups);
+        
+        // Delete the shift permanently
+        shiftRepository.delete(shift);
+    }
+
     @Transactional(readOnly = true)
     public long getTotalCount() {
         return shiftRepository.countByIsActiveTrue();
