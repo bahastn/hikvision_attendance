@@ -6,6 +6,7 @@ import com.attendance.entity.Employee;
 import com.attendance.repository.CameraConfigRepository;
 import com.attendance.repository.EmployeeRepository;
 import com.attendance.service.insightface.FaceMatcher;
+import com.attendance.service.insightface.FaceLearningService;
 import com.attendance.service.insightface.InsightFaceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -46,6 +47,7 @@ public class FaceEventProcessor {
     private final AttendanceService attendanceService;
     private final FaceCaptureService faceCaptureService;
     private final InsightFaceService insightFaceService;
+    private final FaceLearningService faceLearningService;
 
     @Value("${attendance.face-storage-dir:faces}")
     private String faceStorageDir;
@@ -114,6 +116,8 @@ public class FaceEventProcessor {
                 lastAcceptedByPerson.put(camera.getId() + ":" + employee.getEmployeeId(), now);
                 log.info("InsightFace recognized {} ({}) score {} on {}", employee.getEmployeeId(),
                         employee.getFullName(), String.format("%.3f", result.score()), camera.getIpAddress());
+                // Very confident matches may become new reference samples (off by default).
+                faceLearningService.considerAutoLearn(employee, result);
                 return;
             }
             if (result.band() == FaceMatcher.Band.UNCERTAIN && result.candidate() != null) {

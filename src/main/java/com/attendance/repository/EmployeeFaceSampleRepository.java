@@ -19,6 +19,9 @@ public interface EmployeeFaceSampleRepository extends JpaRepository<EmployeeFace
 
     long countByEmployeeId(Long employeeId);
 
+    java.util.Optional<EmployeeFaceSample> findTopByEmployeeIdAndSourceOrderByCreatedAtDesc(
+            Long employeeId, EmployeeFaceSample.Source source);
+
     boolean existsByEmployeeId(Long employeeId);
 
     boolean existsBySourceCaptureId(Long sourceCaptureId);

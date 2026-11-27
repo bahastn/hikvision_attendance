@@ -47,21 +47,26 @@ public class InsightFaceService {
      *                         NO_FACE, LOW_QUALITY:&lt;issue&gt;, DISABLED
      * @param face             the probe face that was matched (null when none was usable)
      * @param probe            the probe's normalized embedding (null when none)
+     * @param picture          the JPEG that was analysed (the event picture or its fallback)
      */
     public record RecognitionResult(FaceMatcher.Band band, Employee candidate, double score,
                                     double runnerUpScore, Long runnerUpDbId, String reason,
-                                    DetectedFace face, float[] probe) {
+                                    DetectedFace face, float[] probe, byte[] picture) {
         public static RecognitionResult noMatch() {
             return noMatch("NO_FACE", null, null);
         }
 
         public static RecognitionResult noMatch(String reason, DetectedFace face, float[] probe) {
-            return new RecognitionResult(FaceMatcher.Band.NO_MATCH, null, 0.0, 0.0, null, reason, face, probe);
+            return new RecognitionResult(FaceMatcher.Band.NO_MATCH, null, 0.0, 0.0, null, reason, face, probe, null);
         }
 
         /** Gap between the best and second-best employee. */
         public double margin() {
             return score - runnerUpScore;
+        }
+
+        RecognitionResult withPicture(byte[] jpeg) {
+            return new RecognitionResult(band, candidate, score, runnerUpScore, runnerUpDbId, reason, face, probe, jpeg);
         }
 
         /** True when no usable face was found (as opposed to a face that matched nobody). */
@@ -93,7 +98,7 @@ public class InsightFaceService {
             return RecognitionResult.noMatch("LOW_QUALITY:" + quality.issue().name(), face, null);
         }
         float[] probe = EmbeddingCodec.normalize(face.embedding());
-        return match(probe, face);
+        return match(probe, face).withPicture(jpeg);
     }
 
     /**
@@ -127,7 +132,7 @@ public class InsightFaceService {
         Long runnerUpId = decision.runnerUp() != null ? decision.runnerUp().employeeDbId() : null;
         if (decision.band() == FaceMatcher.Band.NO_MATCH) {
             return new RecognitionResult(FaceMatcher.Band.NO_MATCH, null, decision.best().score(), runnerUpScore,
-                    runnerUpId, decision.reason().name(), face, probe);
+                    runnerUpId, decision.reason().name(), face, probe, null);
         }
         Optional<Employee> employee = employeeRepository.findById(decision.best().employeeDbId())
                 .filter(e -> Boolean.TRUE.equals(e.getIsActive()));
@@ -136,7 +141,7 @@ public class InsightFaceService {
             return RecognitionResult.noMatch("EMPTY_GALLERY", face, probe);
         }
         return new RecognitionResult(decision.band(), employee.get(), decision.best().score(), runnerUpScore,
-                runnerUpId, decision.reason().name(), face, probe);
+                runnerUpId, decision.reason().name(), face, probe, null);
     }
 
     /**

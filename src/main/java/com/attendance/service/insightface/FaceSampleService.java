@@ -182,6 +182,83 @@ public class FaceSampleService {
         refreshAfterCommit(employeeDbId);
     }
 
+    // ---- Learned samples (phase 3) --------------------------------------------------------------
+
+    /**
+     * Store a camera capture as a learned sample (REVIEW_CONFIRMED or AUTO_LEARNED). The caller has
+     * already checked quality and novelty. Keeps at most {@code max-learned-per-employee} learned
+     * samples and {@code max-per-employee} samples in total by replacing the oldest learned one;
+     * uploaded and enrollment photos are never replaced. Returns the new sample, or null when there
+     * was no room.
+     */
+    @Transactional
+    public FaceSampleDTO addLearnedSample(Long employeeDbId, byte[] jpeg, DetectedFace face, float[] vector,
+                                          double quality, EmployeeFaceSample.Source source, Long captureId,
+                                          Double matchScore, String username) {
+        if (!source.isLearned()) {
+            throw new IllegalArgumentException("Not a learned source: " + source);
+        }
+        if (settings.getMaxLearnedPerEmployee() <= 0) {
+            return null;
+        }
+        if (captureId != null && sampleRepository.existsBySourceCaptureId(captureId)) {
+            return null; // this capture was learned already
+        }
+        List<EmployeeFaceSample> learned = sampleRepository.findByEmployeeIdAndSourceInOrderByCreatedAtAsc(
+                employeeDbId, List.of(EmployeeFaceSample.Source.REVIEW_CONFIRMED, EmployeeFaceSample.Source.AUTO_LEARNED));
+        long total = sampleRepository.countByEmployeeId(employeeDbId);
+        // How many of the oldest learned samples must go to make room for one more.
+        int removeCount = 0;
+        while (removeCount < learned.size()
+                && (learned.size() - removeCount >= settings.getMaxLearnedPerEmployee()
+                || total - removeCount >= settings.getMaxSamplesPerEmployee())) {
+            removeCount++;
+        }
+        if (total - removeCount >= settings.getMaxSamplesPerEmployee()) {
+            return null; // only uploaded/enrollment photos left and the employee is at the limit
+        }
+        String imageUrl;
+        try {
+            imageUrl = writeSampleFile(employeeDbId, JpegUtil.toJpeg(jpeg, settings.getMaxImageSide()));
+        } catch (Exception e) {
+            log.warn("Could not store learned face sample for employee #{}: {}", employeeDbId, e.getMessage());
+            return null;
+        }
+        for (EmployeeFaceSample oldest : learned.subList(0, removeCount)) {
+            sampleRepository.delete(oldest);
+            String oldUrl = oldest.getImageUrl();
+            afterCommit(() -> deleteSampleFileQuietly(oldUrl));
+            log.info("Replaced oldest learned face sample #{} of employee #{}", oldest.getId(), employeeDbId);
+        }
+        EmployeeFaceSample row = buildSample(employeeDbId, source, imageUrl, vector, face, quality, username);
+        row.setSourceCaptureId(captureId);
+        row.setMatchScore(matchScore);
+        EmployeeFaceSample saved = sampleRepository.save(row);
+        refreshAfterCommit(employeeDbId);
+        return toDTO(saved);
+    }
+
+    /** When the employee last got an AUTO_LEARNED sample, or null. */
+    @Transactional(readOnly = true)
+    public LocalDateTime lastAutoLearnedAt(Long employeeDbId) {
+        return sampleRepository.findTopByEmployeeIdAndSourceOrderByCreatedAtDesc(
+                        employeeDbId, EmployeeFaceSample.Source.AUTO_LEARNED)
+                .map(EmployeeFaceSample::getCreatedAt).orElse(null);
+    }
+
+    /** Read a stored image by its public {@code /faces/...} URL (never outside the storage dir). */
+    public byte[] readStoredImage(String imageUrl) throws IOException {
+        if (imageUrl == null || !imageUrl.startsWith("/faces/")) {
+            throw new IOException("Not a stored face image: " + imageUrl);
+        }
+        Path base = Paths.get(faceStorageDir).toAbsolutePath().normalize();
+        Path file = base.resolve(imageUrl.substring("/faces/".length())).normalize();
+        if (!file.startsWith(base)) {
+            throw new IOException("Image path escapes the face storage directory: " + imageUrl);
+        }
+        return Files.readAllBytes(file);
+    }
+
     // ---- Enrollment (primary) sample ------------------------------------------------------------
 
     /**

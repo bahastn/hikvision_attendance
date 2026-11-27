@@ -108,6 +108,26 @@ public class InsightFaceSettings {
     @Value("${insightface.learning.max-learned-per-employee:8}")
     private int maxLearnedPerEmployee;
 
+    /** A confirmed capture must still score at least this against the employee's own photos. */
+    @Value("${insightface.learning.review-min-score:0.30}")
+    private double reviewLearnMinScore;
+
+    /** Quality rules for a camera capture to become a sample (captures are smaller than uploads). */
+    @Value("${insightface.learning.min-det-score:0.60}")
+    private double learnMinDetScore;
+
+    @Value("${insightface.learning.min-face-size:80}")
+    private double learnMinFaceSize;
+
+    @Value("${insightface.learning.max-yaw:40}")
+    private double learnMaxYaw;
+
+    @Value("${insightface.learning.max-pitch:35}")
+    private double learnMaxPitch;
+
+    @Value("${insightface.learning.min-blur:20}")
+    private double learnMinBlur;
+
     /** Minimum hours between two automatic learnings for the same employee. */
     @Value("${insightface.learning.auto.min-interval-hours:24}")
     private long autoLearnMinIntervalHours;
@@ -141,6 +161,10 @@ public class InsightFaceSettings {
 
     public FaceQuality.Policy samplePolicy() {
         return new FaceQuality.Policy(sampleMinDetScore, sampleMinFaceSize, sampleMaxYaw, sampleMaxPitch, sampleMinBlur);
+    }
+
+    public FaceQuality.Policy learnPolicy() {
+        return new FaceQuality.Policy(learnMinDetScore, learnMinFaceSize, learnMaxYaw, learnMaxPitch, learnMinBlur);
     }
 
     public boolean verifyWeakGoesToReview() {

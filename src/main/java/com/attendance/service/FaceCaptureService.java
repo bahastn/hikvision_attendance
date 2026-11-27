@@ -9,7 +9,11 @@ import com.attendance.entity.FaceCapture;
 import com.attendance.repository.EmployeeRepository;
 import com.attendance.repository.FaceCaptureRepository;
 import lombok.RequiredArgsConstructor;
+import com.attendance.service.insightface.FaceEmbeddingEvents;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -42,6 +46,7 @@ public class FaceCaptureService {
     private final FaceEnrollmentService faceEnrollmentService;
     private final AttendanceService attendanceService;
     private final EmployeeRepository employeeRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Value("${attendance.face-storage-dir:faces}")
     private String faceStorageDir;
@@ -169,19 +174,34 @@ public class FaceCaptureService {
 
         String direction = attendanceService.hasOpenCheckInToday(employee.getId()) ? "OUT" : "IN";
         Double scorePercent = capture.getCandidateScore() != null ? capture.getCandidateScore() * 100.0 : null;
+        // Record the attendance at the moment the face was captured, not when the reviewer clicked.
+        Long capturedAtMillis = capture.getCapturedAt() != null
+                ? capture.getCapturedAt().atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                : null;
+        // A camera match that InsightFace could not confirm stays a camera recognition once confirmed.
+        String source = "CAMERA_VERIFY".equals(capture.getRecognitionSource()) ? "CAMERA" : "INSIGHTFACE";
         attendanceService.processDetection(
                 employee.getEmployeeId(),
                 capture.getCameraName() != null ? capture.getCameraName() : "INSIGHTFACE",
                 scorePercent,
                 direction,
                 capture.getImageUrl(),
-                null,
-                "INSIGHTFACE");
+                capturedAtMillis,
+                source);
 
         capture.setReviewStatus(FaceCapture.ReviewStatus.CONFIRMED);
         capture.setMatchedEmployeeId(employee.getEmployeeId());
         capture.setMatchedEmployeeName(employee.getFullName());
         captureRepository.save(capture);
+
+        // Let InsightFace learn from the confirmed capture (after commit, async; no-op when off).
+        eventPublisher.publishEvent(new FaceEmbeddingEvents.CaptureConfirmed(
+                capture.getId(), employee.getId(), capture.getImageUrl(), currentUsername()));
+    }
+
+    private static String currentUsername() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null && auth.isAuthenticated() ? auth.getName() : null;
     }
 
     /** Reject a pending review: no attendance is recorded; the capture is marked REJECTED. */
