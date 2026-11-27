@@ -91,6 +91,22 @@ public class FaceMatchRecord {
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
+    /**
+     * Whether this match has been through the attendance pipeline. {@code false} for a match that
+     * still has to be processed (or failed and will be retried); {@code null} for rows recorded
+     * before this flag existed, which are treated as processed.
+     */
+    @Column(name = "attendance_processed")
+    private Boolean attendanceProcessed;
+
+    /** How many times processing this match into attendance failed. */
+    @Column(name = "process_attempts")
+    private Integer processAttempts;
+
+    /** Last processing error, for diagnostics. */
+    @Column(name = "process_error", length = 500)
+    private String processError;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

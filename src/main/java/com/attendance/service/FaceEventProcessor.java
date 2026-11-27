@@ -4,6 +4,7 @@ import com.attendance.dto.FaceEvent;
 import com.attendance.entity.CameraConfig;
 import com.attendance.entity.Employee;
 import com.attendance.repository.CameraConfigRepository;
+import com.attendance.repository.EmployeeCameraTargetRepository;
 import com.attendance.repository.EmployeeRepository;
 import com.attendance.service.insightface.FaceMatcher;
 import com.attendance.service.insightface.FaceLearningService;
@@ -42,6 +43,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class FaceEventProcessor {
 
     private final EmployeeRepository employeeRepository;
+    private final EmployeeCameraTargetRepository targetRepository;
     private final CameraConfigRepository cameraRepository;
     private final HikvisionIsapiClient isapiClient;
     private final AttendanceService attendanceService;
@@ -58,25 +60,32 @@ public class FaceEventProcessor {
     @Value("${attendance.camera.cooldown-seconds:60}")
     private long cooldownSeconds;
 
-    /** Last time an event was accepted per person (camera + identifier), for the cooldown. */
+    /**
+     * Event time of the last accepted event per person (camera + identifier), for the cooldown.
+     * Event time (not arrival time) is used so that matches replayed later by the catch-up sync —
+     * e.g. a morning check-in and an evening check-out handled in the same second — are not
+     * mistaken for duplicates.
+     */
     private final Map<String, Instant> lastAcceptedByPerson = new ConcurrentHashMap<>();
 
     public void process(CameraConfig camera, FaceEvent event, byte[] picture) {
         String identifier = event.getEmployeeNo() != null && !event.getEmployeeNo().isBlank()
                 ? event.getEmployeeNo().trim()
+                : (event.getPid() != null && !event.getPid().isBlank()
+                ? "pid:" + event.getPid().trim()
                 : (event.getPersonName() != null && !event.getPersonName().isBlank()
-                ? "name:" + event.getPersonName().trim() : "unknown");
+                ? "name:" + event.getPersonName().trim() : "unknown"));
         String cooldownKey = camera.getId() + ":" + identifier;
 
-        Instant now = Instant.now();
+        Instant now = event.getEventTimeMillis() != null ? Instant.ofEpochMilli(event.getEventTimeMillis()) : Instant.now();
         Instant last = lastAcceptedByPerson.get(cooldownKey);
-        if (last != null && Duration.between(last, now).getSeconds() < cooldownSeconds) {
-            log.debug("Cooldown: skipping {} on {} (seen {}s ago)", identifier,
-                    camera.getIpAddress(), Duration.between(last, now).getSeconds());
+        if (last != null && Math.abs(Duration.between(last, now).getSeconds()) < cooldownSeconds) {
+            log.debug("Cooldown: skipping {} on {} (seen {}s apart)", identifier,
+                    camera.getIpAddress(), Math.abs(Duration.between(last, now).getSeconds()));
             return;
         }
 
-        Optional<Employee> employeeOpt = resolveEmployee(event);
+        Optional<Employee> employeeOpt = resolveEmployee(camera, event);
 
         // Low-similarity recognition of a known face: skip without consuming the
         // cooldown slot, so a better capture a second later still gets through.
@@ -202,7 +211,7 @@ public class FaceEventProcessor {
                                   byte[] pictureBytes, Double similarity, String source) {
         String storedImagePath = savePicture(camera, pictureBytes);
         String deviceId = event.getDeviceId() != null ? event.getDeviceId() : camera.getCameraName();
-        String direction = determineDirection(employee.getId());
+        String direction = determineDirection(employee.getId(), event.getEventTimeMillis());
         attendanceService.processDetection(
                 employee.getEmployeeId(),
                 deviceId,
@@ -215,19 +224,33 @@ public class FaceEventProcessor {
     }
 
     /**
-     * Map the camera's identifier to an Employee. Tries faceTemplateId (the PID
-     * assigned at enrollment) first, then employeeId (sent as certificateNumber),
-     * then the camera-reported name.
+     * Map the camera's identifier to an Employee: the per-camera PID link first, then the
+     * employeeId (sent to the camera as certificateNumber), then faceTemplateId (a PID), then
+     * the camera-reported name.
      */
-    private Optional<Employee> resolveEmployee(FaceEvent event) {
+    private Optional<Employee> resolveEmployee(CameraConfig camera, FaceEvent event) {
+        // The camera-local PID is the most precise link: it is recorded per camera when a face is
+        // enrolled or a library sync links the person (employee_camera_targets).
+        if (event.getPid() != null && !event.getPid().isBlank()) {
+            Optional<Employee> byPid = targetRepository.findFirstByCameraIdAndPid(camera.getId(), event.getPid().trim())
+                    .map(t -> t.getEmployee().getId())
+                    .flatMap(employeeRepository::findById);
+            if (byPid.isPresent()) return byPid;
+        }
         if (event.getEmployeeNo() != null && !event.getEmployeeNo().isBlank()) {
             String no = event.getEmployeeNo().trim();
 
-            Optional<Employee> byTemplate = employeeRepository.findByFaceTemplateId(no);
-            if (byTemplate.isPresent()) return byTemplate;
-
+            // Employee ID first: camera PIDs are small numbers ("12") that could otherwise collide
+            // with another employee's ID and pick the wrong person.
             Optional<Employee> byEmployeeId = employeeRepository.findByEmployeeId(no);
             if (byEmployeeId.isPresent()) return byEmployeeId;
+
+            Optional<Employee> byTemplate = employeeRepository.findByFaceTemplateId(no);
+            if (byTemplate.isPresent()) return byTemplate;
+        }
+        if (event.getPid() != null && !event.getPid().isBlank()) {
+            Optional<Employee> byTemplate = employeeRepository.findByFaceTemplateId(event.getPid().trim());
+            if (byTemplate.isPresent()) return byTemplate;
         }
 
         if (event.getPersonName() != null && !event.getPersonName().isBlank()) {
@@ -241,9 +264,13 @@ public class FaceEventProcessor {
     }
 
     /** First accepted detection of the day is a check-IN; a later one is a check-OUT. */
-    private String determineDirection(Long employeeId) {
-        boolean alreadyCheckedInToday = attendanceService.hasOpenCheckInToday(employeeId);
-        return alreadyCheckedInToday ? "OUT" : "IN";
+    private String determineDirection(Long employeeId, Long eventTimeMillis) {
+        // Use the event's own day, so a match replayed after midnight lands on the right day.
+        java.time.LocalDate day = eventTimeMillis != null
+                ? LocalDateTime.ofInstant(Instant.ofEpochMilli(eventTimeMillis), java.time.ZoneId.systemDefault()).toLocalDate()
+                : java.time.LocalDate.now();
+        boolean alreadyCheckedIn = attendanceService.hasOpenCheckIn(employeeId, day);
+        return alreadyCheckedIn ? "OUT" : "IN";
     }
 
     /** Get the event JPEG: the stream part when present, otherwise the camera's picture URL. */

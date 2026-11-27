@@ -125,6 +125,38 @@ public class HikvisionIsapiClient {
         return testIsapiConnection(camera);
     }
 
+    /**
+     * The camera's current clock as epoch millis (GET /ISAPI/System/time, {@code <localTime>}),
+     * or empty when it cannot be read. Used to measure how far the camera clock is from the
+     * server clock, because match times (snapTime) come from the camera.
+     */
+    public Optional<Long> getDeviceTime(CameraConfig camera) {
+        try {
+            HttpResponse<String> response = send(camera, "GET", buildUrl(camera, "/ISAPI/System/time"),
+                    (String) null, null, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200 || response.body() == null) {
+                log.debug("System/time on {} returned HTTP {}", camera.getIpAddress(), response.statusCode());
+                return Optional.empty();
+            }
+            String local = findRegex(response.body(), "<localTime>\\s*([^<]+?)\\s*</localTime>");
+            return Optional.ofNullable(parseTime(local));
+        } catch (Exception e) {
+            log.debug("Could not read the clock of {}: {}", camera.getIpAddress(), e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Camera similarity as a percentage. Some firmware reports 0..1 (e.g. 0.92) instead of 0..100;
+     * a real match is never below 1%, so values up to 1.0 are scaled to percent.
+     */
+    static Double normalizeSimilarity(Double value) {
+        if (value == null || value.isNaN()) {
+            return null;
+        }
+        return value <= 1.0 ? value * 100.0 : value;
+    }
+
     /** Download a JPEG. urlPath may be a path ("/ISAPI/...") or a full URL returned by the camera. */
     public Optional<byte[]> downloadPicture(CameraConfig camera, String urlPath) {
         try {
@@ -467,7 +499,8 @@ public class HikvisionIsapiClient {
             String name = findRegex(chunk, "<name>\\s*([^<]+?)\\s*</name>");
             String cert = findRegex(chunk, "<certificateNumber>\\s*([^<]*?)\\s*</certificateNumber>");
             String pid = findRegex(chunk, "<PID>\\s*([^<\\s]+)\\s*</PID>");
-            Double similarity = parseDouble(findRegex(chunk, "<similarity>\\s*([^<]+?)\\s*</similarity>"));
+            Double similarity = normalizeSimilarity(
+                    parseDouble(findRegex(chunk, "<similarity>\\s*([^<]+?)\\s*</similarity>")));
             String snapTime = findRegex(chunk, "<snapTime>\\s*([^<]+?)\\s*</snapTime>");
             if ((name == null && cert == null) || snapTime == null) continue; // no library match / no time
             Long millis = parseTime(snapTime);
@@ -814,7 +847,7 @@ public class HikvisionIsapiClient {
             return FaceEvent.builder()
                     .employeeNo(employeeNo)
                     .personName(firstOf(finder, "name", "personName", "humanName"))
-                    .similarity(parseDouble(firstOf(finder, "similarity", "similarityScore")))
+                    .similarity(normalizeSimilarity(parseDouble(firstOf(finder, "similarity", "similarityScore"))))
                     .eventTimeMillis(time != null ? time : System.currentTimeMillis())
                     .pictureUrl(firstOf(finder, "pictureURL", "picUrl", "snapPicURL", "faceURL", "captureURL"))
                     .backgroundPictureUrl(firstOf(finder, "bkgUrl", "bkgURL", "backgroundURL", "bgPicURL", "sceneURL"))

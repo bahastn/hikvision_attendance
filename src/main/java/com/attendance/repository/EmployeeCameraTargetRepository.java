@@ -14,6 +14,11 @@ public interface EmployeeCameraTargetRepository extends JpaRepository<EmployeeCa
 
     Optional<EmployeeCameraTarget> findByEmployeeIdAndCameraId(Long employeeId, Long cameraId);
 
+    /** The employee enrolled on a camera under a given (camera-local) PID. */
+    Optional<EmployeeCameraTarget> findFirstByCameraIdAndPid(Long cameraId, String pid);
+
+    List<EmployeeCameraTarget> findByCameraId(Long cameraId);
+
     void deleteByEmployeeIdAndCameraId(Long employeeId, Long cameraId);
 
     void deleteByEmployeeId(Long employeeId);

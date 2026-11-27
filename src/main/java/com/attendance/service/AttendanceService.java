@@ -193,8 +193,14 @@ public class AttendanceService {
      */
     @Transactional(readOnly = true)
     public boolean hasOpenCheckInToday(Long employeeId) {
+        return hasOpenCheckIn(employeeId, LocalDate.now());
+    }
+
+    /** True if the employee has a check-in record on {@code date} (an event's day) with no check-out. */
+    @Transactional(readOnly = true)
+    public boolean hasOpenCheckIn(Long employeeId, LocalDate date) {
         return attendanceRepository
-                .findByEmployeeIdAndAttendanceDate(employeeId, LocalDate.now())
+                .findByEmployeeIdAndAttendanceDate(employeeId, date)
                 .filter(r -> r.getCheckOut() == null)
                 .isPresent();
     }

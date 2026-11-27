@@ -19,6 +19,8 @@ public class FaceEvent {
     private Double similarity;
     /** Event time as epoch millis from the camera. */
     private Long eventTimeMillis;
+    /** Camera-local face library PID of the matched person, when reported (FCSearch). */
+    private String pid;
     /** Raw picture URL path on the camera (to be downloaded). */
     private String pictureUrl;
     /**
