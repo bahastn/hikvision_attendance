@@ -120,6 +120,9 @@
                             th:value="${cam.id}"
                             th:text="${cam.cameraName + ' (' + cam.ipAddress + ')'}">Camera</option>
                 </select>
+                <button class="btn btn-secondary" id="btn-compare" disabled>
+                    <i class="fas fa-right-left"></i> <span th:text="#{cameraSync.compare}">Compare with app</span>
+                </button>
                 <button class="btn btn-primary" id="btn-preview" disabled>
                     <i class="fas fa-eye"></i> <span th:text="#{cameraSync.preview}">Preview</span>
                 </button>
@@ -171,6 +174,9 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Two-way comparison (app <-> camera) -->
+            <div id="compare-container" style="display:none;margin-bottom:20px;"></div>
 
             <!-- Preview Container -->
             <div id="preview-container">
@@ -249,6 +255,33 @@
         </div>
     </div>
 
+<script th:inline="javascript">
+    const LIB_T = {
+        title: /*[[#{cameraSync.compare.title}]]*/ 'App and camera comparison',
+        unreachable: /*[[#{cameraSync.compare.unreachable}]]*/ 'The camera face library could not be read.',
+        onCamera: /*[[#{cameraSync.compare.onCamera}]]*/ 'On camera',
+        linked: /*[[#{cameraSync.compare.linked}]]*/ 'In both',
+        missing: /*[[#{cameraSync.compare.missing}]]*/ 'Missing on camera',
+        notSent: /*[[#{cameraSync.compare.notSent}]]*/ 'Never sent to this camera',
+        cameraOnly: /*[[#{cameraSync.compare.cameraOnly}]]*/ 'Only on camera',
+        noCert: /*[[#{cameraSync.compare.noCert}]]*/ 'On camera without ID number',
+        deactivated: /*[[#{cameraSync.compare.deactivated}]]*/ 'Deactivated but still on camera',
+        nameDiffers: /*[[#{cameraSync.compare.nameDiffers}]]*/ 'Name differs',
+        missingHint: /*[[#{cameraSync.compare.missingHint}]]*/ 'The app thinks these employees are on the camera, but the camera does not have them.',
+        notSentHint: /*[[#{cameraSync.compare.notSentHint}]]*/ 'Active employees with a photo that were never sent to this camera.',
+        cameraOnlyHint: /*[[#{cameraSync.compare.cameraOnlyHint}]]*/ 'Use Preview / Sync to import them as employees.',
+        noCertHint: /*[[#{cameraSync.compare.noCertHint}]]*/ 'Their matches can only be linked by name. Add the employee ID on the camera, or link them in Preview.',
+        nameDiffersHint: /*[[#{cameraSync.compare.nameDiffersHint}]]*/ 'The app name is kept; resolve in Preview if the camera name is right.',
+        fix: /*[[#{cameraSync.compare.fix}]]*/ 'Fix differences',
+        optLink: /*[[#{cameraSync.compare.optLink}]]*/ 'Link people found in both',
+        optResend: /*[[#{cameraSync.compare.optResend}]]*/ 'Re-send employees missing on the camera',
+        optRemove: /*[[#{cameraSync.compare.optRemove}]]*/ 'Remove deactivated employees from the camera',
+        optSendNew: /*[[#{cameraSync.compare.optSendNew}]]*/ 'Also send employees never sent to this camera',
+        optPhotos: /*[[#{cameraSync.compare.optPhotos}]]*/ 'Copy missing photos from the camera',
+        done: /*[[#{cameraSync.compare.done}]]*/ 'Done',
+        noPhoto: /*[[#{cameraSync.compare.noPhoto}]]*/ 'no photo in the app'
+    };
+</script>
 <script>
     let currentCameraId = null;
     let previewData = null;
@@ -263,6 +296,8 @@
             currentCameraId = this.value;
             const hasCamera = !!this.value;
             document.getElementById('btn-preview').disabled = !hasCamera;
+            document.getElementById('btn-compare').disabled = !hasCamera;
+            document.getElementById('compare-container').style.display = 'none';
             document.getElementById('btn-sync-selected').disabled = !hasCamera;
             document.getElementById('btn-sync-all').disabled = !hasCamera;
             
@@ -272,6 +307,7 @@
         });
 
         document.getElementById('btn-preview').addEventListener('click', loadPreview);
+        document.getElementById('btn-compare').addEventListener('click', loadCompare);
         document.getElementById('btn-sync-selected').addEventListener('click', syncSelected);
         document.getElementById('btn-sync-all').addEventListener('click', syncAll);
         document.getElementById('btn-cancel-preview').addEventListener('click', resetUI);
@@ -598,6 +634,124 @@
                     syncLog.innerHTML += '\nError polling job: ' + err.message;
                 });
         }, 1500);
+    }
+
+    // ---------------- Two-way comparison ----------------
+    function esc(v) {
+        return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function loadCompare() {
+        if (!currentCameraId) return;
+        const box = document.getElementById('compare-container');
+        box.style.display = 'block';
+        box.innerHTML = '<div style="text-align:center;padding:30px;"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+        fetch('/api/camera-face-library/' + currentCameraId + '/compare')
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) {
+                    box.innerHTML = '<div class="alert alert-danger">' + esc(data.message) + '</div>';
+                    return;
+                }
+                renderCompare(data.data);
+            })
+            .catch(e => { box.innerHTML = '<div class="alert alert-danger">' + esc(e.message) + '</div>'; });
+    }
+
+    function compareList(type, title, hint, rows, render) {
+        if (!rows.length) return '';
+        let html = '<div class="preview-section"><div class="preview-header ' + type + '"><span>' + esc(title) + '</span><span>' + rows.length + '</span></div>';
+        html += '<div class="preview-content expanded"><p style="margin-bottom:10px;color:var(--hk-text-muted);font-size:13px;">' + esc(hint) + '</p>';
+        rows.slice(0, 300).forEach(r => { html += '<div class="person-row"><div class="person-info">' + render(r) + '</div></div>'; });
+        if (rows.length > 300) html += '<div class="person-details">+ ' + (rows.length - 300) + '</div>';
+        return html + '</div></div>';
+    }
+
+    function renderCompare(r) {
+        const box = document.getElementById('compare-container');
+        if (!r.reachable) {
+            box.innerHTML = '<div class="alert alert-danger">' + esc(LIB_T.unreachable) + '</div>';
+            return;
+        }
+        const stat = (n, label, color) => '<div class="stat-box"><span class="stat-number" style="color:' + color + ';">' + n + '</span><span class="stat-label">' + esc(label) + '</span></div>';
+        let html = '<h5 style="margin-bottom:12px;">' + esc(LIB_T.title) + '</h5>';
+        html += '<div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:15px;">'
+            + stat(r.onCamera, LIB_T.onCamera, 'var(--hk-primary)')
+            + stat(r.linked, LIB_T.linked, '#28a745')
+            + stat(r.missingOnCamera, LIB_T.missing, '#dc3545')
+            + stat(r.notSent, LIB_T.notSent, '#6c757d')
+            + stat(r.cameraOnly, LIB_T.cameraOnly, '#17a2b8')
+            + stat(r.noCertificate, LIB_T.noCert, '#6c757d')
+            + stat(r.deactivatedOnCamera, LIB_T.deactivated, '#dc3545')
+            + stat(r.nameDiffers, LIB_T.nameDiffers, '#ffc107')
+            + '</div>';
+
+        html += '<div class="preview-section" style="padding:15px;">'
+            + '<label style="display:block;margin-bottom:6px;"><input type="checkbox" id="opt-link" checked> ' + esc(LIB_T.optLink) + '</label>'
+            + '<label style="display:block;margin-bottom:6px;"><input type="checkbox" id="opt-resend" checked> ' + esc(LIB_T.optResend) + '</label>'
+            + '<label style="display:block;margin-bottom:6px;"><input type="checkbox" id="opt-remove" checked> ' + esc(LIB_T.optRemove) + '</label>'
+            + '<label style="display:block;margin-bottom:6px;"><input type="checkbox" id="opt-sendnew"> ' + esc(LIB_T.optSendNew) + '</label>'
+            + '<label style="display:block;margin-bottom:12px;"><input type="checkbox" id="opt-photos" checked> ' + esc(LIB_T.optPhotos) + '</label>'
+            + '<button class="btn btn-primary" id="btn-reconcile"><i class="fas fa-wrench"></i> ' + esc(LIB_T.fix) + '</button>'
+            + '<pre class="sync-log" id="reconcile-log" style="display:none;margin-top:12px;white-space:pre-wrap;"></pre>'
+            + '</div>';
+
+        const app = r.appEmployees || [];
+        const cam = r.cameraPeople || [];
+        const emp = a => '<div class="person-name">' + esc(a.name) + '</div><div class="person-details">ID: ' + esc(a.employeeId)
+            + (a.expectedPid ? ' | PID: ' + esc(a.expectedPid) : '') + (a.hasPhoto ? '' : ' | ' + esc(LIB_T.noPhoto)) + '</div>';
+        const per = p => '<div class="person-name">' + esc(p.name || '-') + '</div><div class="person-details">ID: ' + esc(p.certificateNumber || 'N/A')
+            + ' | PID: ' + esc(p.pid) + (p.employeeName ? ' | App: ' + esc(p.employeeName) : '') + '</div>';
+        html += compareList('deactivated', LIB_T.missing, LIB_T.missingHint, app.filter(a => a.status === 'MISSING_ON_CAMERA'), emp);
+        html += compareList('no-cert', LIB_T.notSent, LIB_T.notSentHint, app.filter(a => a.status === 'NOT_SENT'), emp);
+        html += compareList('new', LIB_T.cameraOnly, LIB_T.cameraOnlyHint, cam.filter(p => p.status === 'CAMERA_ONLY'), per);
+        html += compareList('no-cert', LIB_T.noCert, LIB_T.noCertHint, cam.filter(p => p.status === 'NO_CERTIFICATE'), per);
+        html += compareList('deactivated', LIB_T.deactivated, '', cam.filter(p => p.status === 'DEACTIVATED'), per);
+        html += compareList('conflict', LIB_T.nameDiffers, LIB_T.nameDiffersHint, cam.filter(p => p.status === 'NAME_DIFFERS'), per);
+        box.innerHTML = html;
+        document.getElementById('btn-reconcile').addEventListener('click', runReconcile);
+    }
+
+    function runReconcile() {
+        const q = new URLSearchParams({
+            link: document.getElementById('opt-link').checked,
+            resendMissing: document.getElementById('opt-resend').checked,
+            removeDeactivated: document.getElementById('opt-remove').checked,
+            sendNew: document.getElementById('opt-sendnew').checked,
+            fetchPhotos: document.getElementById('opt-photos').checked
+        });
+        const log = document.getElementById('reconcile-log');
+        const btn = document.getElementById('btn-reconcile');
+        log.style.display = 'block';
+        log.textContent = '...';
+        btn.disabled = true;
+        fetch('/api/camera-face-library/' + currentCameraId + '/reconcile?' + q.toString(), { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success || !data.data || !data.data.jobId) {
+                    log.textContent = 'Error: ' + (data.message || 'could not start');
+                    btn.disabled = false;
+                    return;
+                }
+                const timer = setInterval(() => {
+                    fetch('/api/camera-face-library/jobs/' + data.data.jobId)
+                        .then(r => r.json())
+                        .then(s => {
+                            if (!s.success) { clearInterval(timer); log.textContent = 'Error: ' + s.message; btn.disabled = false; return; }
+                            const j = s.data;
+                            if (j.state === 'RUNNING') { log.textContent += '.'; return; }
+                            clearInterval(timer);
+                            btn.disabled = false;
+                            if (j.state === 'ERROR') { log.textContent = 'Error: ' + (j.error || ''); return; }
+                            log.textContent = LIB_T.done + ': linked ' + j.linked + ', re-sent ' + j.resent + ', sent ' + j.sent
+                                + ', removed ' + j.removed + ', marked not enrolled ' + j.cleared + ', photos ' + j.photos
+                                + ', failed ' + j.failed + '\n\n' + (j.messages || []).join('\n');
+                            setTimeout(loadCompare, 3000);
+                        })
+                        .catch(e => { clearInterval(timer); log.textContent = 'Error: ' + e.message; btn.disabled = false; });
+                }, 1500);
+            })
+            .catch(e => { log.textContent = 'Error: ' + e.message; btn.disabled = false; });
     }
 
     function resetUI() {

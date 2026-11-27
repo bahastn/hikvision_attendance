@@ -8,6 +8,7 @@ import static com.attendance.security.PermissionAction.*;
 import com.attendance.dto.ApiResponse;
 import com.attendance.dto.ImportPreview;
 import com.attendance.service.EnhancedCameraFaceLibraryService;
+import com.attendance.service.FaceLibraryReconcileService;
 import com.attendance.service.FaceLibrarySyncJobService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +30,7 @@ public class EnhancedCameraFaceLibraryController {
     private final EnhancedCameraFaceLibraryService enhancedService;
     private final com.attendance.service.FaceLibrarySyncJobService syncJobService;
     private final com.attendance.security.AccessControlService access;
+    private final FaceLibraryReconcileService reconcileService;
 
     /**
      * Preview what will happen during sync without making changes.
@@ -84,6 +86,40 @@ public class EnhancedCameraFaceLibraryController {
             @RequestParam(required = false) String performedBy) {
         access.requireGroup(EMPLOYEES, MODIFY, null);
         String jobId = syncJobService.startSyncAll(access.currentUsername());
+        return ResponseEntity.ok(ApiResponse.success(Map.of("jobId", jobId)));
+    }
+
+    /**
+     * Compare the app with the camera's face library (both directions) without changing anything.
+     */
+    @GetMapping("/{cameraId}/compare")
+    @RequiresPermission(module = FACE_RECOGNITION, action = VIEW)
+    public ResponseEntity<ApiResponse<FaceLibraryReconcileService.Report>> compare(@PathVariable Long cameraId) {
+        try {
+            return ResponseEntity.ok(ApiResponse.success(reconcileService.report(cameraId)));
+        } catch (Exception e) {
+            log.warn("Face library compare failed for camera {}: {}", cameraId, e.getMessage());
+            return ResponseEntity.ok(ApiResponse.error("Compare failed: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Fix the differences on one camera in the background (link PIDs, re-send missing employees,
+     * remove deactivated people, optionally send employees never sent, copy missing photos).
+     * Returns a job id to poll.
+     */
+    @PostMapping("/{cameraId}/reconcile")
+    @RequiresPermission(module = FACE_RECOGNITION, action = MODIFY)
+    public ResponseEntity<ApiResponse<Map<String, String>>> reconcile(
+            @PathVariable Long cameraId,
+            @RequestParam(defaultValue = "true") boolean link,
+            @RequestParam(defaultValue = "true") boolean resendMissing,
+            @RequestParam(defaultValue = "true") boolean removeDeactivated,
+            @RequestParam(defaultValue = "false") boolean sendNew,
+            @RequestParam(defaultValue = "true") boolean fetchPhotos) {
+        access.requireGroup(EMPLOYEES, MODIFY, null);
+        String jobId = syncJobService.startReconcile(cameraId,
+                new FaceLibraryReconcileService.Options(link, resendMissing, removeDeactivated, sendNew, fetchPhotos));
         return ResponseEntity.ok(ApiResponse.success(Map.of("jobId", jobId)));
     }
 

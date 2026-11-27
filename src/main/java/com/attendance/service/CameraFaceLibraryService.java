@@ -158,11 +158,9 @@ public class CameraFaceLibraryService {
                 }
             } else {
                 // ---- Link / update existing employee ----
+                // The app is the source of truth for names: a different (often shortened or
+                // transliterated) camera name is not copied over the employee's name.
                 boolean changed = false;
-                if (employee.getFullName() == null || !employee.getFullName().equals(person.name)) {
-                    employee.setFullName(person.name);
-                    changed = true;
-                }
                 if (employee.getFaceTemplateId() == null || employee.getFaceTemplateId().isBlank()) {
                     employee.setFaceTemplateId(person.pid);
                     changed = true;
@@ -176,6 +174,7 @@ public class CameraFaceLibraryService {
         }
 
         camera.setLastSync(LocalDateTime.now());
+        camera.setLastLibrarySync(LocalDateTime.now());
         cameraRepository.save(camera);
 
         log.info("Face library sync on {}: {} imported, {} linked, {} removed, {} skipped",

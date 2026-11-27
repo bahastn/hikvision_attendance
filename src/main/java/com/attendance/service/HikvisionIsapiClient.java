@@ -280,32 +280,90 @@ public class HikvisionIsapiClient {
     }
 
     /**
-     * People stored in a face library. POST /ISAPI/Intelligent/FDLib/FDSearch — the
-     * same search verified against the camera with curl. Returns one page of up to
-     * {@code maxResults} entries, or an empty list when the search fails.
+     * Every person stored in a face library (up to {@code maxResults}), or an empty list when the
+     * search fails. See {@link #fetchFaceLibrary} to tell "empty library" from "camera unreachable".
      */
     public List<FaceLibPerson> searchFaceLibrary(CameraConfig camera, String libId, int maxResults) {
+        return fetchFaceLibrary(camera, libId, maxResults).orElse(Collections.emptyList());
+    }
+
+    /**
+     * Every person stored in a face library: POST /ISAPI/Intelligent/FDLib/FDSearch, paged.
+     *
+     * <p>Cameras return only a limited page per request (often 30-100 people) however large
+     * {@code maxResults} is, and say {@code MORE} when there are more. This pages until the camera
+     * reports the end, so large libraries are read completely. Positions start at 0 (ISAPI); if the
+     * camera rejects position 0 the older 1-based request is used. People without a
+     * certificateNumber are included (certificateNumber null) so they can be listed and linked.
+     *
+     * @return the people, or empty when the camera could not be searched at all
+     */
+    public Optional<List<FaceLibPerson>> fetchFaceLibrary(CameraConfig camera, String libId, int maxResults) {
+        Map<String, FaceLibPerson> byPid = new LinkedHashMap<>();
+        String searchId = UUID.randomUUID().toString();
+        int pageSize = 50;
+        int position = 0;
+        boolean firstPage = true;
+        for (int page = 0; page < 10_000 && byPid.size() < maxResults; page++) {
+            String xml = fetchFaceLibraryPage(camera, libId, searchId, position, Math.min(pageSize, maxResults - byPid.size()));
+            if (xml == null && firstPage) {
+                // Some older firmware only accepts a 1-based start position.
+                position = 1;
+                xml = fetchFaceLibraryPage(camera, libId, searchId, position, Math.min(pageSize, maxResults));
+            }
+            if (xml == null) {
+                if (firstPage) {
+                    return Optional.empty(); // camera could not be searched
+                }
+                log.warn("FDSearch on {} stopped after {} people (page at position {} failed)",
+                        camera.getIpAddress(), byPid.size(), position);
+                break;
+            }
+            firstPage = false;
+            int before = byPid.size();
+            for (FaceLibPerson p : parseFdSearch(xml)) {
+                FaceLibPerson existing = byPid.get(p.pid);
+                if (existing == null || (existing.certificateNumber == null && p.certificateNumber != null)) {
+                    byPid.put(p.pid, p);
+                }
+            }
+            String status = findRegex(xml, "<responseStatusStrg>\\s*([^<]+?)\\s*</responseStatusStrg>");
+            Integer num = parseInt(findRegex(xml, "<numOfMatches>\\s*([0-9]+)\\s*</numOfMatches>"));
+            boolean more = status != null && status.trim().equalsIgnoreCase("MORE");
+            int raw = num != null ? num : byPid.size() - before;
+            if (!more || raw <= 0 || byPid.size() == before) {
+                break; // end of library, or the camera ignores the position (stall guard)
+            }
+            position += raw;
+        }
+        List<FaceLibPerson> out = new ArrayList<>(byPid.values());
+        return Optional.of(out.size() > maxResults ? new ArrayList<>(out.subList(0, maxResults)) : out);
+    }
+
+    /** One FDSearch page as XML, or null on a transport/HTTP error. */
+    private String fetchFaceLibraryPage(CameraConfig camera, String libId, String searchId, int position, int pageSize) {
         String body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
                 + "<FDSearchDescription>"
                 + "<FDID>" + escapeXml(libId) + "</FDID>"
                 + "<startTime>1970-01-01</startTime>"
                 + "<endTime>2035-12-31</endTime>"
-                + "<searchID>1</searchID>"
-                + "<maxResults>" + maxResults + "</maxResults>"
-                + "<searchResultPosition>1</searchResultPosition>"
+                + "<searchID>" + escapeXml(searchId) + "</searchID>"
+                + "<maxResults>" + Math.max(1, pageSize) + "</maxResults>"
+                + "<searchResultPosition>" + position + "</searchResultPosition>"
                 + "</FDSearchDescription>";
         try {
             HttpResponse<String> response = send(camera, "POST",
                     buildUrl(camera, "/ISAPI/Intelligent/FDLib/FDSearch"),
                     body, "application/xml", HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200 || response.body() == null) {
-                log.warn("FDSearch on {} returned HTTP {}", camera.getIpAddress(), response.statusCode());
-                return Collections.emptyList();
+                log.warn("FDSearch on {} (position {}) returned HTTP {}", camera.getIpAddress(), position,
+                        response.statusCode());
+                return null;
             }
-            return parseFdSearch(response.body());
+            return response.body();
         } catch (Exception e) {
             log.warn("FDSearch failed on {}: {}", camera.getIpAddress(), e.getMessage());
-            return Collections.emptyList();
+            return null;
         }
     }
 
@@ -316,41 +374,56 @@ public class HikvisionIsapiClient {
             return Optional.empty();
         }
         String wanted = certificateNumber.trim();
-        return searchFaceLibrary(camera, libId, 100).stream()
+        return searchFaceLibrary(camera, libId, 10_000).stream()
                 .filter(p -> wanted.equals(p.certificateNumber))
                 .findFirst();
     }
 
     /**
-     * FDSearch answers with one PID + name + certificateNumber block per person, followed
-     * by per-person modeling status blocks that repeat PID and name. Pairing each
-     * certificateNumber with the nearest preceding PID (document order) picks out the people.
+     * FDSearch answers with one PID + name + certificateNumber block per person, possibly followed
+     * by per-person modeling status blocks that repeat PID and name. Each PID becomes one person;
+     * its name is the first name after the PID and its certificateNumber the first non-blank one
+     * (null when the person has none).
      */
     private List<FaceLibPerson> parseFdSearch(String xml) {
-        Map<String, FaceLibPerson> byPid = new LinkedHashMap<>();
+        Map<String, String[]> byPid = new LinkedHashMap<>(); // pid -> {name, certificateNumber}
         Matcher m = Pattern.compile("<(PID|name|certificateNumber)>\\s*([^<]*?)\\s*</\\1>").matcher(xml);
         String pid = null;
-        String name = null;
+        boolean nameSeen = false;
         while (m.find()) {
             String tag = m.group(1);
             String value = m.group(2);
             switch (tag) {
                 case "PID" -> {
-                    pid = value;
-                    name = null;
+                    pid = value.isBlank() ? null : value;
+                    nameSeen = false;
+                    if (pid != null) {
+                        byPid.putIfAbsent(pid, new String[]{null, null});
+                    }
                 }
                 case "name" -> {
-                    if (pid != null && name == null) name = value;
+                    if (pid != null && !nameSeen) {
+                        nameSeen = true;
+                        String[] p = byPid.get(pid);
+                        if (p[0] == null && !value.isBlank()) {
+                            p[0] = value;
+                        }
+                    }
                 }
                 case "certificateNumber" -> {
                     if (pid != null && !value.isBlank()) {
-                        byPid.put(pid, new FaceLibPerson(pid, name, value));
+                        String[] p = byPid.get(pid);
+                        if (p[1] == null) {
+                            p[1] = value;
+                        }
                     }
                 }
                 default -> { }
             }
         }
-        return new ArrayList<>(byPid.values());
+        List<FaceLibPerson> out = new ArrayList<>();
+        byPid.forEach((k, v) -> out.add(new FaceLibPerson(k, v[0], v[1])));
+        return out;
     }
 
     // ------------------------------------------------------------------
