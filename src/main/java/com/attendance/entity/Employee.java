@@ -2,6 +2,7 @@ package com.attendance.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.ColumnDefault;
 import java.time.LocalDateTime;
 
 @Entity
@@ -29,6 +30,12 @@ public class Employee {
 
     private String position;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    @ColumnDefault("'EMPLOYEE'")
+    @Builder.Default
+    private EmployeeCategory category = EmployeeCategory.EMPLOYEE;
+
     private String email;
 
     private String phone;
@@ -42,6 +49,16 @@ public class Employee {
     @Column(name = "is_active")
     private Boolean isActive = true;
 
+    @Column(name = "sync_status")
+    @Enumerated(EnumType.STRING)
+    private SyncStatus syncStatus = SyncStatus.PENDING;
+
+    @Column(name = "last_camera_sync")
+    private LocalDateTime lastCameraSync;
+
+    @Column(name = "camera_sync_count")
+    private Integer cameraSyncCount = 0;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "group_id")
     private EmployeeGroup group;
@@ -54,6 +71,9 @@ public class Employee {
 
     @PrePersist
     protected void onCreate() {
+        if (category == null) {
+            category = EmployeeCategory.EMPLOYEE;
+        }
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
     }

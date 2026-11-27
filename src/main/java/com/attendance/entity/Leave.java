@@ -21,8 +21,11 @@ public class Leave {
     @JoinColumn(name = "employee_id", nullable = false)
     private Employee employee;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "leave_type", nullable = false)
+    // Nullable at the DB level on purpose: it is added to an existing populated
+    // table by ddl-auto, and the startup migration backfills it. The service layer
+    // requires a type when creating a leave.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "leave_type_id")
     private LeaveType leaveType;
 
     @Column(name = "start_date", nullable = false)
@@ -33,6 +36,18 @@ public class Leave {
 
     @Column(name = "reason", length = 1000)
     private String reason;
+
+    // Optional supporting document (medical certificate, etc.). All three columns are
+    // nullable and added to a populated table by ddl-auto. The stored file lives on disk
+    // under attendance.leave-storage-dir; attachmentPath is its relative filename there.
+    @Column(name = "attachment_path", length = 255)
+    private String attachmentPath;
+
+    @Column(name = "attachment_filename", length = 255)
+    private String attachmentFilename;
+
+    @Column(name = "attachment_content_type", length = 100)
+    private String attachmentContentType;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
@@ -60,10 +75,6 @@ public class Leave {
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
-    }
-
-    public enum LeaveType {
-        ANNUAL, SICK, CASUAL, MATERNITY, PATERNITY, UNPAID, OTHER
     }
 
     public enum LeaveStatus {

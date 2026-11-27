@@ -186,7 +186,63 @@
         </div>
     </div>
 
-    <!-- Row 3: On Leave + Recent Detections -->
+    <!-- Row 3: Sync Status Widgets -->
+    <div class="row" style="margin-bottom:20px;">
+        <div class="col-4">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title"><i class="fas fa-user-check icon-spacing"></i><span>Face Matches</span></span>
+                    <a href="/face-matches" class="btn btn-sm btn-secondary">View All</a>
+                </div>
+                <div class="card-body">
+                    <div style="display:flex;justify-content:space-around;text-align:center;">
+                        <div>
+                            <div style="font-size:32px;font-weight:700;color:var(--hk-primary);" id="widget-new-matches">0</div>
+                            <div style="font-size:12px;color:var(--hk-text-muted);">New Matches</div>
+                        </div>
+                        <div>
+                            <div style="font-size:32px;font-weight:700;color:var(--hk-success);" id="widget-24h-matches">0</div>
+                            <div style="font-size:12px;color:var(--hk-text-muted);">Last 24h</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title"><i class="fas fa-sync-alt icon-spacing"></i><span>Sync Status</span></span>
+                    <a href="/camera-sync" class="btn btn-sm btn-secondary">Manage</a>
+                </div>
+                <div class="card-body">
+                    <div style="display:flex;justify-content:space-around;text-align:center;">
+                        <div>
+                            <div style="font-size:32px;font-weight:700;color:var(--hk-warning);" id="widget-pending-sync">0</div>
+                            <div style="font-size:12px;color:var(--hk-text-muted);">Pending Sync</div>
+                        </div>
+                        <div>
+                            <div style="font-size:32px;font-weight:700;color:var(--hk-success);" id="widget-synced">0</div>
+                            <div style="font-size:12px;color:var(--hk-text-muted);">Synced</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title"><i class="fas fa-history icon-spacing"></i><span>Recent Syncs</span></span>
+                </div>
+                <div class="card-body" style="padding:0;max-height:120px;overflow-y:auto;">
+                    <div id="recent-sync-batches" style="padding:10px;">
+                        <div style="text-align:center;color:var(--hk-text-muted);font-size:12px;">No recent syncs</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Row 4: On Leave + Recent Detections -->
     <div class="row">
         <!-- On Leave Now -->
         <div class="col-4">

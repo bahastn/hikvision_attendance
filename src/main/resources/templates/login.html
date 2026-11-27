@@ -82,11 +82,14 @@
         <div class="login-alert info" th:if="${param.logout}" th:text="#{login.loggedOut}">
             You have been logged out
         </div>
+        <div class="login-alert info" th:if="${param.expired}" th:text="#{login.expired}">
+            Your session has ended. Please sign in again.
+        </div>
 
         <form th:action="@{/login}" method="post">
-            <input type="text" name="username" class="form-control" required autofocus
+            <input type="text" name="username" class="form-control" required autofocus autocomplete="username"
                    th:placeholder="#{login.username}" placeholder="Username">
-            <input type="password" name="password" class="form-control" required
+            <input type="password" name="password" class="form-control" required autocomplete="current-password"
                    th:placeholder="#{login.password}" placeholder="Password">
             <button type="submit" class="btn btn-primary" style="width:100%;">
                 <i class="fas fa-sign-in-alt"></i>

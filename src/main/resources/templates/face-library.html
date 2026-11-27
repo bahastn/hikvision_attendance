@@ -3,6 +3,25 @@
 <head><title th:text="#{page.faceLibrary}">Face Capture Library</title></head>
 <body>
 <div th:fragment="sidebar">
+    <!-- Pending verification: uncertain InsightFace suggestions awaiting a human decision.
+         Hidden until there is at least one pending item. -->
+    <div class="card" id="pending-review-card" style="display:none;margin-bottom:20px;">
+        <div class="card-header">
+            <span class="card-title">
+                <i class="fas fa-user-check icon-spacing"></i>
+                <span th:text="#{faceLibrary.pendingReview.title}">Pending Verification</span>
+                <span class="badge badge-late" id="pending-review-count" style="margin-left:8px;">0</span>
+            </span>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-warning" style="margin-bottom:15px;">
+                <i class="fas fa-triangle-exclamation"></i>
+                <span th:text="#{faceLibrary.pendingReview.subtitle}">InsightFace found a likely match but was not confident enough to record attendance automatically. Confirm to record attendance, or reject to dismiss.</span>
+            </div>
+            <div id="pending-review-grid" class="face-capture-grid"></div>
+        </div>
+    </div>
+
     <div class="card">
         <div class="card-header">
             <span class="card-title">
@@ -32,7 +51,7 @@
     <div class="modal-overlay" id="capture-enroll-modal">
         <div class="modal">
             <div class="modal-header">
-                <h3 th:text="#{faceLibrary.modal.title}">Add to Employee</h3>
+                <h3 th:text="#{employees.modal.add}">Add Employee</h3>
                 <button class="modal-close" onclick="app.closeModal('capture-enroll-modal')">&times;</button>
             </div>
             <form id="capture-enroll-form">
@@ -53,30 +72,46 @@
                         </div>
                     </div>
                     <div class="row">
-                        <div class="col-6">
+                        <div class="col-4">
                             <div class="form-group">
                                 <label class="form-label" th:text="#{employees.form.employeeId}">Employee ID *</label>
                                 <input type="text" class="form-control" id="cap-emp-id" required>
                             </div>
                         </div>
-                        <div class="col-6">
+                        <div class="col-4">
                             <div class="form-group">
                                 <label class="form-label" th:text="#{employees.form.fullName}">Full Name *</label>
                                 <input type="text" class="form-control" id="cap-emp-name" required>
                             </div>
                         </div>
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{employees.form.fullNameKurdish}">Full Name (Kurdish)</label>
+                                <input type="text" class="form-control" id="cap-emp-name-kurdish">
+                            </div>
+                        </div>
                     </div>
                     <div class="row">
-                        <div class="col-6">
+                        <div class="col-4">
                             <div class="form-group">
                                 <label class="form-label" th:text="#{employees.form.department}">Department</label>
                                 <input type="text" class="form-control" id="cap-emp-dept">
                             </div>
                         </div>
-                        <div class="col-6">
+                        <div class="col-4">
                             <div class="form-group">
                                 <label class="form-label" th:text="#{employees.form.position}">Position</label>
                                 <input type="text" class="form-control" id="cap-emp-position">
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{employees.form.category}">Category *</label>
+                                <select class="form-control" id="cap-emp-category" required>
+                                    <option value="EMPLOYEE" th:text="#{employees.category.employee}">Employee</option>
+                                    <option value="MANAGER" th:text="#{employees.category.manager}">Manager</option>
+                                    <option value="ADVISER" th:text="#{employees.category.adviser}">Adviser</option>
+                                </select>
                             </div>
                         </div>
                     </div>

@@ -8,7 +8,9 @@ import java.util.List;
 
 @Entity
 @Table(name = "employee_groups")
-@Data
+@Getter
+@Setter
+@ToString(exclude = {"employees", "shift", "shiftRule"})
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
@@ -36,7 +38,8 @@ public class EmployeeGroup {
     @Builder.Default
     private Boolean isActive = true;
 
-    @OneToMany(mappedBy = "group", cascade = CascadeType.ALL, orphanRemoval = false)
+    // No cascade: deleting a group must never delete its employees.
+    @OneToMany(mappedBy = "group")
     @Builder.Default
     private List<Employee> employees = new ArrayList<>();
 

@@ -5,6 +5,8 @@ import com.attendance.entity.CameraConfig;
 import com.attendance.entity.Employee;
 import com.attendance.repository.CameraConfigRepository;
 import com.attendance.repository.EmployeeRepository;
+import com.attendance.service.insightface.FaceMatcher;
+import com.attendance.service.insightface.InsightFaceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -43,6 +45,7 @@ public class FaceEventProcessor {
     private final HikvisionIsapiClient isapiClient;
     private final AttendanceService attendanceService;
     private final FaceCaptureService faceCaptureService;
+    private final InsightFaceService insightFaceService;
 
     @Value("${attendance.face-storage-dir:faces}")
     private String faceStorageDir;
@@ -86,31 +89,59 @@ public class FaceEventProcessor {
         // camera reported. Every accepted event lands in the 24h face capture library;
         // matched employees additionally get a persistent copy on their attendance record.
         byte[] pictureBytes = resolvePictureBytes(camera, event, picture);
-        faceCaptureService.recordCapture(camera, event, pictureBytes, employeeOpt.orElse(null));
 
-        if (employeeOpt.isEmpty()) {
-            // Unknown faces get their picture saved once per cooldown window.
+        // --- The camera recognized the employee: record attendance (unchanged behavior). ---
+        if (employeeOpt.isPresent()) {
+            Employee employee = employeeOpt.get();
+            faceCaptureService.recordCapture(camera, event, pictureBytes, employee);
+            recordAttendance(camera, event, employee, pictureBytes, event.getSimilarity(), "CAMERA");
             lastAcceptedByPerson.put(cooldownKey, now);
-            log.info("Face event from {} did not match any employee (id={}, name={})",
-                    camera.getIpAddress(), event.getEmployeeNo(), event.getPersonName());
             return;
         }
 
-        String storedImagePath = savePicture(camera, pictureBytes);
+        // --- The camera did NOT recognize the face: try the InsightFace fallback layer. ---
+        lastAcceptedByPerson.put(cooldownKey, now);
+        if (insightFaceService.isEnabled() && pictureBytes != null && pictureBytes.length > 0) {
+            InsightFaceService.RecognitionResult result = insightFaceService.recognize(pictureBytes);
+            if (result.band() == FaceMatcher.Band.HIGH && result.candidate() != null) {
+                // High confidence -> validate and record attendance just like a camera match.
+                Employee employee = result.candidate();
+                faceCaptureService.recordCapture(camera, event, pictureBytes, employee);
+                recordAttendance(camera, event, employee, pictureBytes, result.score() * 100.0, "INSIGHTFACE");
+                // Stamp the cooldown under the identified employee too, so a camera event for the
+                // same person moments later on another ingestion path respects the window.
+                lastAcceptedByPerson.put(camera.getId() + ":" + employee.getEmployeeId(), now);
+                log.info("InsightFace recognized {} ({}) score {} on {}", employee.getEmployeeId(),
+                        employee.getFullName(), String.format("%.3f", result.score()), camera.getIpAddress());
+                return;
+            }
+            if (result.band() == FaceMatcher.Band.UNCERTAIN && result.candidate() != null) {
+                // Uncertain -> queue for a human to confirm/reject (no attendance yet).
+                faceCaptureService.recordUncertainMatch(camera, event, pictureBytes, result.candidate(), result.score());
+                return;
+            }
+        }
 
-        Employee employee = employeeOpt.get();
+        // No match (or fallback disabled/unavailable): keep today's behavior — save the unknown capture.
+        faceCaptureService.recordCapture(camera, event, pictureBytes, null);
+        log.info("Face event from {} did not match any employee (id={}, name={})",
+                camera.getIpAddress(), event.getEmployeeNo(), event.getPersonName());
+    }
+
+    /** Persist the event picture and record an attendance detection for the given employee. */
+    private void recordAttendance(CameraConfig camera, FaceEvent event, Employee employee,
+                                  byte[] pictureBytes, Double similarity, String source) {
+        String storedImagePath = savePicture(camera, pictureBytes);
         String deviceId = event.getDeviceId() != null ? event.getDeviceId() : camera.getCameraName();
         String direction = determineDirection(employee.getId());
-
         attendanceService.processDetection(
                 employee.getEmployeeId(),
                 deviceId,
-                event.getSimilarity(),
+                similarity,
                 direction,
                 storedImagePath,
-                event.getEventTimeMillis());
-
-        lastAcceptedByPerson.put(cooldownKey, now);
+                event.getEventTimeMillis(),
+                source);
         markConnected(camera);
     }
 

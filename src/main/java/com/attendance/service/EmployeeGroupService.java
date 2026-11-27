@@ -9,6 +9,7 @@ import com.attendance.repository.EmployeeGroupRepository;
 import com.attendance.repository.EmployeeRepository;
 import com.attendance.repository.ShiftRepository;
 import com.attendance.repository.ShiftRuleRepository;
+import static com.attendance.security.TextSanitizer.clean;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +25,8 @@ public class EmployeeGroupService {
     private final EmployeeRepository employeeRepository;
     private final ShiftRepository shiftRepository;
     private final ShiftRuleRepository shiftRuleRepository;
+    private final com.attendance.repository.AppRoleRepository roleRepository;
+    private final com.attendance.security.PermissionResolver permissionResolver;
 
     @Transactional(readOnly = true)
     public List<EmployeeGroupDTO> getAllGroups() {
@@ -61,8 +64,8 @@ public class EmployeeGroupService {
         }
 
         EmployeeGroup group = EmployeeGroup.builder()
-                .name(dto.getName())
-                .description(dto.getDescription())
+                .name(clean("Group name", dto.getName()))
+                .description(clean("Description", dto.getDescription()))
                 .shift(shift)
                 .shiftRule(shiftRule)
                 .isActive(true)
@@ -83,8 +86,8 @@ public class EmployeeGroupService {
         EmployeeGroup group = groupRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Group not found"));
 
-        group.setName(dto.getName());
-        group.setDescription(dto.getDescription());
+        group.setName(clean("Group name", dto.getName()));
+        group.setDescription(clean("Description", dto.getDescription()));
         group.setIsActive(dto.getIsActive());
 
         if (dto.getShiftId() != null) {
@@ -143,7 +146,11 @@ public class EmployeeGroupService {
                 .collect(Collectors.toList());
         employees.forEach(e -> e.setGroup(null));
         employeeRepository.saveAll(employees);
-        
+
+        // Role grants limited to this group lose it (a grant left with no groups grants nothing).
+        roleRepository.removeGroupFromAllGrants(id);
+        permissionResolver.invalidateOnCommit();
+
         // Delete the group permanently
         groupRepository.delete(group);
     }

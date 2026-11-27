@@ -59,11 +59,25 @@ public class CameraService {
     public CameraDTO updateCamera(Long id, CameraDTO dto) {
         CameraConfig camera = cameraRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Camera not found"));
+
+        boolean endpointChanged =
+                !java.util.Objects.equals(camera.getIpAddress(), dto.getIpAddress())
+                || !java.util.Objects.equals(camera.getPort(), dto.getPort())
+                || !java.util.Objects.equals(camera.getProtocol(), dto.getProtocol())
+                || !java.util.Objects.equals(camera.getUsername(), dto.getUsername());
+        boolean passwordSupplied = dto.getPassword() != null && !dto.getPassword().isBlank();
+        if (endpointChanged && !passwordSupplied) {
+            // Never reuse the stored password against a new address/port/host: that would
+            // leak the camera's admin credentials to whatever host the new address points to.
+            throw new IllegalArgumentException(
+                    "Re-enter the camera password when changing its address, port, protocol or username");
+        }
+
         camera.setCameraName(dto.getCameraName());
         camera.setIpAddress(dto.getIpAddress());
         camera.setPort(dto.getPort());
         camera.setUsername(dto.getUsername());
-        if (dto.getPassword() != null && !dto.getPassword().isBlank()) {
+        if (passwordSupplied) {
             camera.setPassword(dto.getPassword());
         }
         camera.setProtocol(dto.getProtocol());

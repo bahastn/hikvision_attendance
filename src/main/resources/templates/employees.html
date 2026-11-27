@@ -6,7 +6,7 @@
     <div class="card">
         <div class="card-header">
             <span class="card-title"><i class="fas fa-users icon-spacing"></i><span th:text="#{employees.title}">Employee Management</span></span>
-            <button class="btn btn-primary" id="btn-add-employee">
+            <button class="btn btn-primary" id="btn-add-employee" th:if="${@perm.can('EMPLOYEES','MODIFY')}">
                 <i class="fas fa-plus"></i> <span th:text="#{employees.addEmployee}">Add Employee</span>
             </button>
         </div>
@@ -21,6 +21,8 @@
                             <th th:text="#{table.id}">ID</th>
                             <th th:text="#{table.face}">Face</th>
                             <th th:text="#{table.name}">Name</th>
+                            <th th:text="#{employees.form.group}">Group</th>
+                            <th th:text="#{employees.form.category}">Category</th>
                             <th th:text="#{table.department}">Department</th>
                             <th th:text="#{table.position}">Position</th>
                             <th th:text="#{table.email}">Email</th>
@@ -30,7 +32,7 @@
                         </tr>
                     </thead>
                     <tbody id="employees-table-body">
-                        <tr><td colspan="9" style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{employees.loading}">Loading...</td></tr>
+                        <tr><td colspan="11" style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{employees.loading}">Loading...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -81,13 +83,21 @@
                         </div>
                     </div>
                     <div class="row">
-                        <div class="col-6">
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{employees.form.group}">Group</label>
+                                <select class="form-control" id="emp-group">
+                                    <option value="" th:text="#{employees.form.selectGroup}">-- Select group --</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-4">
                             <div class="form-group">
                                 <label class="form-label" th:text="#{employees.form.department}">Department</label>
                                 <input type="text" class="form-control" id="emp-dept">
                             </div>
                         </div>
-                        <div class="col-6">
+                        <div class="col-4">
                             <div class="form-group">
                                 <label class="form-label" th:text="#{employees.form.position}">Position</label>
                                 <input type="text" class="form-control" id="emp-position">
@@ -95,13 +105,23 @@
                         </div>
                     </div>
                     <div class="row">
-                        <div class="col-6">
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label class="form-label" th:text="#{employees.form.category}">Category *</label>
+                                <select class="form-control" id="emp-category" required>
+                                    <option value="EMPLOYEE" th:text="#{employees.category.employee}">Employee</option>
+                                    <option value="MANAGER" th:text="#{employees.category.manager}">Manager</option>
+                                    <option value="ADVISER" th:text="#{employees.category.adviser}">Adviser</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-4">
                             <div class="form-group">
                                 <label class="form-label" th:text="#{employees.form.email}">Email</label>
                                 <input type="email" class="form-control" id="emp-email">
                             </div>
                         </div>
-                        <div class="col-6">
+                        <div class="col-4">
                             <div class="form-group">
                                 <label class="form-label" th:text="#{employees.form.phone}">Phone</label>
                                 <input type="text" class="form-control" id="emp-phone">

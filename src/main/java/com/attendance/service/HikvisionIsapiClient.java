@@ -349,21 +349,75 @@ public class HikvisionIsapiClient {
         }
     }
 
+    /** One page of an FCSearch, plus the paging metadata needed to fetch the next page. */
+    private static final class FaceComparisonPage {
+        final List<FaceComparison> matches;   // library matches parsed from this page (may be fewer than rawCount)
+        final int rawCount;                    // number of result elements the camera reported (numOfMatches)
+        final boolean moreResults;             // responseStatusStrg == MORE
+
+        FaceComparisonPage(List<FaceComparison> matches, int rawCount, boolean moreResults) {
+            this.matches = matches;
+            this.rawCount = rawCount;
+            this.moreResults = moreResults;
+        }
+    }
+
     /**
      * Face-comparison matches recorded on the camera. POST /ISAPI/Intelligent/FDLib/FCSearch —
      * the same endpoint the camera's "Face Picture Comparison Result" page queries. This is the
      * reliable way to fetch matches on firmware that does not push faceMatch events on the
      * alertStream. One FaceComparison per captured face (the first library match in the element).
+     *
+     * <p>Pages through the ENTIRE result set so no match is missed: it advances
+     * {@code searchResultPosition} by the camera-reported {@code numOfMatches} and keeps going
+     * while {@code responseStatusStrg} is {@code MORE} (ISAPI's search paging contract), up to
+     * {@code maxResults} matches in total. Passing a large {@code maxResults} therefore returns
+     * every match in the window, not just the first page.
      */
     public List<FaceComparison> searchFaceComparisons(CameraConfig camera, LocalDateTime start,
                                                       LocalDateTime end, int maxResults) {
+        List<FaceComparison> all = new ArrayList<>();
+        int pageSize = Math.min(Math.max(maxResults, 1), 100);
+        long searchId = Math.abs(RANDOM.nextLong());
+        int position = 0;
+        // Hard page cap as a runaway guard (pageSize * 10000 elements max).
+        for (int page = 0; page < 10_000 && all.size() < maxResults; page++) {
+            FaceComparisonPage result = fetchFaceComparisonPage(camera, start, end, pageSize, position, searchId);
+            if (result == null) {
+                break; // transport/HTTP error already logged
+            }
+            all.addAll(result.matches);
+            // Advance by the raw element count (NOT matches.size(), which drops no-library-match
+            // elements) so the next page starts where the camera left off.
+            if (result.rawCount <= 0) {
+                break; // stall guard: MORE with nothing returned would loop forever
+            }
+            position += result.rawCount;
+            if (!result.moreResults) {
+                break;
+            }
+        }
+        if (all.size() > maxResults) {
+            return new ArrayList<>(all.subList(0, maxResults));
+        }
+        return all;
+    }
+
+    /** Fetch one FCSearch page starting at {@code searchResultPosition}. Returns null on error. */
+    private FaceComparisonPage fetchFaceComparisonPage(CameraConfig camera, LocalDateTime start,
+                                                       LocalDateTime end, int maxResults,
+                                                       int searchResultPosition, long searchId) {
+        // ISAPI time-range searches expect an ISO-8601 time WITH the timezone offset
+        // (e.g. 2026-11-25T13:06:29+03:00). Sending a bare local time makes many firmwares
+        // return an empty result set. This matches searchAcsEvents() above.
+        ZoneId zone = ZoneId.systemDefault();
         String body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
                 + "<FCSearchDescription>"
-                + "<searchID>" + Math.abs(RANDOM.nextLong()) + "</searchID>"
+                + "<searchID>" + searchId + "</searchID>"
                 + "<maxResults>" + maxResults + "</maxResults>"
-                + "<searchResultPosition>1</searchResultPosition>"
-                + "<startTime>" + start.format(ISO_FMT) + "</startTime>"
-                + "<endTime>" + end.format(ISO_FMT) + "</endTime>"
+                + "<searchResultPosition>" + searchResultPosition + "</searchResultPosition>"
+                + "<startTime>" + start.atZone(zone).format(ISO_OFFSET_FMT) + "</startTime>"
+                + "<endTime>" + end.atZone(zone).format(ISO_OFFSET_FMT) + "</endTime>"
                 + "</FCSearchDescription>";
         try {
             HttpResponse<String> response = send(camera, "POST",
@@ -371,12 +425,36 @@ public class HikvisionIsapiClient {
                     body, "application/xml", HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200 || response.body() == null) {
                 log.warn("FCSearch on {} returned HTTP {}", camera.getIpAddress(), response.statusCode());
-                return Collections.emptyList();
+                return null;
             }
-            return parseFcSearchResult(response.body());
+            String xml = response.body();
+            List<FaceComparison> matches = parseFcSearchResult(xml);
+            String status = findRegex(xml, "<responseStatusStrg>\\s*([^<]+?)\\s*</responseStatusStrg>");
+            boolean more = status != null && status.trim().equalsIgnoreCase("MORE");
+            Integer num = parseInt(findRegex(xml, "<numOfMatches>\\s*([0-9]+)\\s*</numOfMatches>"));
+            int rawCount = num != null ? num : countOccurrences(xml, "<MatchElement>");
+            return new FaceComparisonPage(matches, rawCount, more);
         } catch (Exception e) {
             log.warn("FCSearch failed on {}: {}", camera.getIpAddress(), e.getMessage());
-            return Collections.emptyList();
+            return null;
+        }
+    }
+
+    private static int countOccurrences(String text, String token) {
+        int count = 0, idx = 0;
+        while ((idx = text.indexOf(token, idx)) != -1) {
+            count++;
+            idx += token.length();
+        }
+        return count;
+    }
+
+    private Integer parseInt(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 

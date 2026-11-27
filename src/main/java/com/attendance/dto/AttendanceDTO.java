@@ -10,6 +10,10 @@ import java.time.LocalDateTime;
 @Builder
 public class AttendanceDTO {
     private Long id;
+    /** Database id of the employee. */
+    private Long employeeDbId;
+    /** Employee group, used for access filtering (null = no group). */
+    private Long groupId;
     private String employeeId;
     private String employeeName;
     private String department;

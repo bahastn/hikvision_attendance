@@ -13,6 +13,7 @@ public class EmployeeDTO {
     private String fullNameKurdish;
     private String department;
     private String position;
+    private String category;
     private String email;
     private String phone;
     private String faceTemplateId;
@@ -22,4 +23,8 @@ public class EmployeeDTO {
     private String groupName;
     /** Names of the cameras this employee's face is enrolled on. */
     private java.util.List<String> faceCameras;
+    /** Sync status with cameras */
+    private String syncStatus;
+    private java.time.LocalDateTime lastCameraSync;
+    private Integer cameraSyncCount;
 }

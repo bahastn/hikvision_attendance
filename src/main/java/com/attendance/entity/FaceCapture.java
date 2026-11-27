@@ -51,6 +51,34 @@ public class FaceCapture {
 
     private Double similarity;
 
+    /**
+     * Which recognizer looked at this capture: {@code CAMERA} (default, Hikvision) or
+     * {@code INSIGHTFACE} (the fallback layer that produced an uncertain suggestion below).
+     */
+    @Column(name = "recognition_source")
+    private String recognitionSource;
+
+    /** For an uncertain InsightFace match: the suggested employee's business id, awaiting review. */
+    @Column(name = "candidate_employee_id")
+    private String candidateEmployeeId;
+
+    /** For an uncertain InsightFace match: the suggested employee's name. */
+    @Column(name = "candidate_employee_name")
+    private String candidateEmployeeName;
+
+    /** For an uncertain InsightFace match: the cosine similarity (0..1) of the suggestion. */
+    @Column(name = "candidate_score")
+    private Double candidateScore;
+
+    /**
+     * Review state of this capture. {@code NONE} for ordinary captures; {@code PENDING_REVIEW} for an
+     * uncertain InsightFace suggestion awaiting a human decision; {@code CONFIRMED}/{@code REJECTED}
+     * once reviewed. Stored as text; null is treated as NONE.
+     */
+    @Column(name = "review_status")
+    @Enumerated(EnumType.STRING)
+    private ReviewStatus reviewStatus;
+
     @Column(name = "captured_at", nullable = false)
     private LocalDateTime capturedAt;
 
@@ -64,5 +92,9 @@ public class FaceCapture {
         if (capturedAt == null) {
             capturedAt = now;
         }
+    }
+
+    public enum ReviewStatus {
+        NONE, PENDING_REVIEW, CONFIRMED, REJECTED
     }
 }

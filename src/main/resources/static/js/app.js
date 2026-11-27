@@ -11,6 +11,20 @@ class AttendanceApp {
         this.init();
     }
 
+    /** Escape text before putting it into innerHTML. */
+    escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    /** UI hint only (hide buttons); the server checks every request. */
+    can(module, action) {
+        const user = window.currentUser || {};
+        if (user.superAdmin) return true;
+        return !!(user.permissions && user.permissions[module] && user.permissions[module][action]);
+    }
+
     // Helper to get translation
     translate(key, fallback) {
         return this.t[key] || fallback || key;
@@ -53,6 +67,8 @@ class AttendanceApp {
             this.initLiveViewPage();
         } else if (this.currentPage === '/leaves') {
             this.initLeavesPage();
+        } else if (this.currentPage === '/leave-types') {
+            this.initLeaveTypesPage();
         } else if (this.currentPage === '/groups') {
             this.initGroupsPage();
         } else if (this.currentPage === '/shifts') {
@@ -122,19 +138,16 @@ class AttendanceApp {
                 this.updateConnectionStatus(true);
 
                 // Subscribe to topics
-                this.stompClient.subscribe('/topic/attendance', (message) => {
-                    this.handleAttendanceUpdate(JSON.parse(message.body));
-                });
-
-                this.stompClient.subscribe('/topic/stats', (message) => {
+                // Per-user queues: the server only sends events for employee groups this user may see.
+                this.stompClient.subscribe('/user/queue/stats', (message) => {
                     this.handleStatsUpdate(JSON.parse(message.body));
                 });
 
-                this.stompClient.subscribe('/topic/detection', (message) => {
+                this.stompClient.subscribe('/user/queue/detection', (message) => {
                     this.handleNewDetection(JSON.parse(message.body));
                 });
 
-                this.stompClient.subscribe('/topic/camera', (message) => {
+                this.stompClient.subscribe('/user/queue/camera', (message) => {
                     this.handleCameraStatus(JSON.parse(message.body));
                 });
             },
@@ -267,6 +280,7 @@ class AttendanceApp {
         this.loadRecentDetections();
         this.loadRealtimeAttendance();
         this.loadOnLeaveEmployees();
+        this.loadSyncWidgets();
 
         // Auto-refresh every 2 seconds
         setInterval(() => {
@@ -274,7 +288,46 @@ class AttendanceApp {
             this.loadRecentDetections();
             this.loadRealtimeAttendance();
             this.loadOnLeaveEmployees();
+            this.loadSyncWidgets();
         }, 2000);
+    }
+
+    // ==================== SYNC WIDGETS ====================
+    loadSyncWidgets() {
+        // Load face match statistics
+        fetch('/api/face-matches/stats')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('widget-new-matches').textContent = data.data.totalNew || 0;
+                    document.getElementById('widget-24h-matches').textContent = data.data.last24Hours || 0;
+                }
+            })
+            .catch(err => console.error('Error loading match stats:', err));
+
+        // Load sync status
+        fetch('/api/dashboard/sync-status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('widget-pending-sync').textContent = data.data.pendingSyncCount || 0;
+                    // Calculate synced count (total employees - pending)
+                    const totalEmployees = parseInt(document.getElementById('stat-total-employees').textContent) || 0;
+                    const pending = data.data.pendingSyncCount || 0;
+                    document.getElementById('widget-synced').textContent = Math.max(0, totalEmployees - pending);
+                    
+                    // Update recent sync batches
+                    if (data.data.recentBatches && data.data.recentBatches.length > 0) {
+                        const container = document.getElementById('recent-sync-batches');
+                        container.innerHTML = data.data.recentBatches.slice(0, 3).map(batch => 
+                            `<div style="padding:5px;border-bottom:1px solid #eee;font-size:11px;">
+                                <i class="fas fa-check-circle" style="color:var(--hk-success);"></i> ${batch}
+                            </div>`
+                        ).join('');
+                    }
+                }
+            })
+            .catch(err => console.error('Error loading sync status:', err));
     }
 
     // ==================== REAL-TIME ATTENDANCE PANEL ====================
@@ -387,8 +440,7 @@ class AttendanceApp {
             endDate.setHours(0, 0, 0, 0);
             const diffTime = endDate - today;
             const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            const typeKey = 'leaveType' + this.formatLeaveTypeKey(leave.leaveType);
-            const typeLabel = this.translate(typeKey, leave.leaveType);
+            const typeLabel = this.escapeHtml(leave.leaveTypeName || leave.leaveTypeCode || '-');
 
             let remainingText;
             let remainingColor = 'var(--hk-info)';
@@ -958,6 +1010,8 @@ class AttendanceApp {
                         : '<div class="face-thumb face-thumb-empty"><i class="fas fa-user"></i></div>'}
                 </td>
                 <td>${this.displayName(emp)}</td>
+                <td>${emp.groupName ? `<span class="badge badge-leave">${this.escapeHtml(emp.groupName)}</span>` : '-'}</td>
+                <td><span class="badge badge-leave">${this.escapeHtml(this.translate('employeeCategory' + (emp.category || 'EMPLOYEE'), emp.category || 'EMPLOYEE'))}</span></td>
                 <td>${emp.department || '-'}</td>
                 <td>${emp.position || '-'}</td>
                 <td>${emp.email || '-'}</td>
@@ -1007,8 +1061,10 @@ class AttendanceApp {
         document.getElementById('emp-name-kurdish').value = employee?.fullNameKurdish || '';
         document.getElementById('emp-dept').value = employee?.department || '';
         document.getElementById('emp-position').value = employee?.position || '';
+        document.getElementById('emp-category').value = employee?.category || 'EMPLOYEE';
         document.getElementById('emp-email').value = employee?.email || '';
         document.getElementById('emp-phone').value = employee?.phone || '';
+        await this.loadEmployeeGroupOptions(employee?.groupId || '');
 
         const photoInput = document.getElementById('emp-photo');
         if (photoInput) photoInput.value = '';
@@ -1024,6 +1080,30 @@ class AttendanceApp {
         modal.classList.add('active');
     }
 
+    /** Fill the Group select with the groups the user may see (server-filtered). */
+    async loadEmployeeGroupOptions(selectedId) {
+        const select = document.getElementById('emp-group');
+        if (!select) return;
+        if (!this.employeeGroupOptions) {
+            try {
+                const response = await this.ajaxGet('/api/groups/active');
+                this.employeeGroupOptions = response.success ? response.data : [];
+            } catch (e) {
+                this.employeeGroupOptions = [];
+            }
+        }
+        const placeholder = select.querySelector('option[value=""]');
+        select.innerHTML = '';
+        if (placeholder) select.appendChild(placeholder);
+        this.employeeGroupOptions.forEach(g => {
+            const opt = document.createElement('option');
+            opt.value = g.id;
+            opt.textContent = g.name;
+            select.appendChild(opt);
+        });
+        select.value = selectedId ? String(selectedId) : '';
+    }
+
     async saveEmployee() {
         const id = document.getElementById('employee-id-hidden').value;
         const data = {
@@ -1032,8 +1112,10 @@ class AttendanceApp {
             fullNameKurdish: document.getElementById('emp-name-kurdish').value,
             department: document.getElementById('emp-dept').value,
             position: document.getElementById('emp-position').value,
+            category: document.getElementById('emp-category').value,
             email: document.getElementById('emp-email').value,
-            phone: document.getElementById('emp-phone').value
+            phone: document.getElementById('emp-phone').value,
+            groupId: document.getElementById('emp-group')?.value ? Number(document.getElementById('emp-group').value) : null
         };
 
         const photoInput = document.getElementById('emp-photo');
@@ -1317,18 +1399,108 @@ class AttendanceApp {
     // ==================== FACE CAPTURE LIBRARY PAGE ====================
     initFaceLibraryPage() {
         this.faceCaptures = [];
+        this.pendingReviews = [];
         this.loadFaceLibraryCameras();
         this.loadFaceCaptures();
+        this.loadPendingReviews();
 
-        document.getElementById('btn-refresh-captures')?.addEventListener('click', () => this.loadFaceCaptures());
+        document.getElementById('btn-refresh-captures')?.addEventListener('click', () => {
+            this.loadFaceCaptures();
+            this.loadPendingReviews();
+        });
         document.getElementById('face-camera-filter')?.addEventListener('change', () => this.loadFaceCaptures());
         document.getElementById('capture-enroll-form')?.addEventListener('submit', (e) => {
             e.preventDefault();
             this.saveCaptureEnroll();
         });
 
-        // Refresh the grid periodically while the page is open
-        this.captureRefreshTimer = setInterval(() => this.loadFaceCaptures(), 10000);
+        // Refresh the grids periodically while the page is open
+        this.captureRefreshTimer = setInterval(() => {
+            this.loadFaceCaptures();
+            this.loadPendingReviews();
+        }, 10000);
+    }
+
+    /** Load uncertain InsightFace suggestions awaiting review. */
+    async loadPendingReviews() {
+        try {
+            const response = await this.ajaxGet('/api/face-captures/pending-review');
+            if (response.success) {
+                this.pendingReviews = response.data || [];
+                this.renderPendingReviews(this.pendingReviews);
+            }
+        } catch (e) {
+            console.error('Failed to load pending reviews:', e);
+        }
+    }
+
+    renderPendingReviews(items) {
+        const card = document.getElementById('pending-review-card');
+        const grid = document.getElementById('pending-review-grid');
+        const count = document.getElementById('pending-review-count');
+        if (!card || !grid) return;
+        if (!items || items.length === 0) {
+            card.style.display = 'none';
+            return;
+        }
+        card.style.display = '';
+        if (count) count.textContent = items.length;
+        grid.innerHTML = items.map(c => `
+            <div class="capture-card">
+                <img class="capture-photo" src="${c.imageUrl}" alt="capture" loading="lazy">
+                <div class="capture-body">
+                    <span class="badge badge-late" style="align-self:flex-start;">
+                        ${this.translate('faceLibrary.insightFace', 'InsightFace')}${c.candidateScore != null ? ' &bull; ' + Math.round(Number(c.candidateScore) * 100) + '%' : ''}
+                    </span>
+                    <div class="capture-name">${c.candidateEmployeeName || this.translate('faceLibraryUnknown', 'Unknown')}</div>
+                    <div class="capture-meta">
+                        <i class="fas fa-id-badge"></i> ${c.candidateEmployeeId || '-'}
+                    </div>
+                    <div class="capture-meta">
+                        <i class="fas fa-video"></i> ${c.cameraName || '-'}
+                    </div>
+                    <div class="capture-meta"><i class="far fa-clock"></i> ${this.formatTime(c.capturedAt)}</div>
+                </div>
+                <div class="capture-actions">
+                    <button class="btn btn-primary" onclick="app.confirmPendingReview(${c.id})">
+                        <i class="fas fa-check"></i> ${this.translate('faceLibrary.confirm', 'Confirm')}
+                    </button>
+                    <button class="btn btn-secondary" onclick="app.rejectPendingReview(${c.id})">
+                        <i class="fas fa-xmark"></i> ${this.translate('faceLibrary.reject', 'Reject')}
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    async confirmPendingReview(captureId) {
+        try {
+            const response = await this.ajaxPost(`/api/face-captures/${captureId}/confirm`, {});
+            if (response.success) {
+                this.showToast(response.message || this.translate('faceLibrary.confirmed', 'Attendance recorded'), 'success');
+                this.loadPendingReviews();
+                this.loadFaceCaptures();
+            } else {
+                this.showToast(response.message || this.translate('faceLibrary.confirmFailed', 'Could not confirm'), 'error');
+            }
+        } catch (e) {
+            this.showToast(this.translate('faceLibrary.confirmFailed', 'Could not confirm'), 'error');
+        }
+    }
+
+    async rejectPendingReview(captureId) {
+        if (!confirm(this.translate('faceLibrary.rejectConfirm', 'Reject this suggestion? No attendance will be recorded.'))) return;
+        try {
+            const response = await this.ajaxPost(`/api/face-captures/${captureId}/reject`, {});
+            if (response.success) {
+                this.showToast(this.translate('faceLibrary.rejected', 'Rejected'), 'success');
+                this.loadPendingReviews();
+            } else {
+                this.showToast(response.message || this.translate('faceLibrary.rejectFailed', 'Could not reject'), 'error');
+            }
+        } catch (e) {
+            this.showToast(this.translate('faceLibrary.rejectFailed', 'Could not reject'), 'error');
+        }
     }
 
     /** Cameras for the filter dropdown. The "all cameras" label is read from the page. */
@@ -1410,6 +1582,7 @@ class AttendanceApp {
         document.getElementById('cap-emp-name-kurdish').value = '';
         document.getElementById('cap-emp-dept').value = '';
         document.getElementById('cap-emp-position').value = '';
+        document.getElementById('cap-emp-category').value = 'EMPLOYEE';
         document.getElementById('cap-emp-email').value = '';
         document.getElementById('cap-emp-phone').value = '';
 
@@ -1426,6 +1599,7 @@ class AttendanceApp {
         formData.append('fullNameKurdish', document.getElementById('cap-emp-name-kurdish').value);
         formData.append('department', document.getElementById('cap-emp-dept').value);
         formData.append('position', document.getElementById('cap-emp-position').value);
+        formData.append('category', document.getElementById('cap-emp-category').value);
         formData.append('email', document.getElementById('cap-emp-email').value);
         formData.append('phone', document.getElementById('cap-emp-phone').value);
         const cameraIds = this.getSelectedCameraIds('capture-cameras');
@@ -1990,6 +2164,7 @@ class AttendanceApp {
         this.loadApprovedLeaves();
         this.loadLeaveSummary();
         this.populateEmployeeDropdown();
+        this.populateLeaveTypeDropdown();
         this.initLeaveTabs();
 
         document.getElementById('btn-add-leave')?.addEventListener('click', () => {
@@ -1999,6 +2174,11 @@ class AttendanceApp {
         document.getElementById('leave-form')?.addEventListener('submit', (e) => {
             e.preventDefault();
             this.saveLeave();
+        });
+
+        // Live day-count as the date range changes
+        ['leave-start-date', 'leave-end-date'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', () => this.updateLeaveDayCount());
         });
 
         // Search
@@ -2074,25 +2254,32 @@ class AttendanceApp {
             const statusClass = 'badge-' + leave.status.toLowerCase().replace('_', '-');
             const statusKey = 'leaveStatus' + leave.status.charAt(0) + leave.status.slice(1).toLowerCase();
             const statusLabel = this.translate(statusKey, leave.status);
-            const typeKey = 'leaveType' + this.formatLeaveTypeKey(leave.leaveType);
-            const typeLabel = this.translate(typeKey, leave.leaveType);
+            const typeLabel = this.escapeHtml(leave.leaveTypeName || leave.leaveTypeCode || '-');
             const daysText = leave.totalDays + ' ' + (leave.totalDays > 1 ? this.translate('leaveDays', 'days') : this.translate('leaveDay', 'day'));
 
+            const editable = leave.status === 'PENDING' || leave.status === 'APPROVED';
             let actions = '';
+            // View/edit button: pencil when editable (pending/approved), eye for read-only preview.
+            const viewIcon = editable ? 'fa-edit' : 'fa-eye';
+            const viewTitle = editable ? this.translate('leaveEditLeave', 'Edit') : this.translate('leaveDetails', 'Details');
+            actions += `<button class="btn btn-sm btn-secondary btn-icon" onclick="app.openLeaveModal(${leave.id})" title="${viewTitle}"><i class="fas ${viewIcon}"></i></button>`;
+            if (leave.attachmentUrl) {
+                actions += `<button class="btn btn-sm btn-secondary btn-icon" onclick="app.previewLeaveAttachment(${leave.id})" title="${this.translate('leaveAttachmentPreview', 'Preview attachment')}"><i class="fas fa-paperclip"></i></button>`;
+            }
             if (leave.status === 'PENDING') {
-                actions = `
+                actions += `
                     <button class="btn btn-sm btn-success btn-icon" onclick="app.approveLeave(${leave.id})" title="Approve"><i class="fas fa-check"></i></button>
                     <button class="btn btn-sm btn-secondary btn-icon" onclick="app.rejectLeave(${leave.id})" title="Reject"><i class="fas fa-times"></i></button>
                 `;
             } else if (leave.status === 'APPROVED') {
-                actions = `
+                actions += `
                     <button class="btn btn-sm btn-secondary btn-icon" onclick="app.cancelLeave(${leave.id})" title="Cancel"><i class="fas fa-ban"></i></button>
                 `;
             }
             actions += `<button class="btn btn-sm btn-secondary btn-icon" onclick="app.deleteLeave(${leave.id})" title="Delete"><i class="fas fa-trash"></i></button>`;
 
             return `
-            <tr data-name="${leave.employeeName.toLowerCase()}" data-type="${leave.leaveType.toLowerCase()}">
+            <tr data-name="${leave.employeeName.toLowerCase()}" data-type="${((leave.leaveTypeName || '') + ' ' + (leave.leaveTypeCode || '')).toLowerCase()}">
                 <td>${leave.employeeId}</td>
                 <td>${leave.employeeName}</td>
                 <td>${leave.department || '-'}</td>
@@ -2106,10 +2293,6 @@ class AttendanceApp {
             </tr>
         `;
         }).join('');
-    }
-
-    formatLeaveTypeKey(type) {
-        return type.charAt(0) + type.slice(1).toLowerCase();
     }
 
     async loadActiveLeaves() {
@@ -2140,8 +2323,7 @@ class AttendanceApp {
             endDate.setHours(0, 0, 0, 0);
             const diffTime = endDate - today;
             const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            const typeKey = 'leaveType' + this.formatLeaveTypeKey(leave.leaveType);
-            const typeLabel = this.translate(typeKey, leave.leaveType);
+            const typeLabel = this.escapeHtml(leave.leaveTypeName || leave.leaveTypeCode || '-');
 
             let remainingText;
             if (daysRemaining <= 0) {
@@ -2186,8 +2368,7 @@ class AttendanceApp {
         }
 
         tbody.innerHTML = leaves.map(leave => {
-            const typeKey = 'leaveType' + this.formatLeaveTypeKey(leave.leaveType);
-            const typeLabel = this.translate(typeKey, leave.leaveType);
+            const typeLabel = this.escapeHtml(leave.leaveTypeName || leave.leaveTypeCode || '-');
             const daysText = leave.totalDays + ' ' + (leave.totalDays > 1 ? this.translate('leaveDays', 'days') : this.translate('leaveDay', 'day'));
 
             return `
@@ -2201,6 +2382,8 @@ class AttendanceApp {
                 <td>${daysText}</td>
                 <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${leave.reason || ''}">${leave.reason || '-'}</td>
                 <td>
+                    <button class="btn btn-sm btn-secondary btn-icon" onclick="app.openLeaveModal(${leave.id})" title="${this.translate('leaveEditLeave', 'Edit')}"><i class="fas fa-edit"></i></button>
+                    ${leave.attachmentUrl ? `<button class="btn btn-sm btn-secondary btn-icon" onclick="app.previewLeaveAttachment(${leave.id})" title="${this.translate('leaveAttachmentPreview', 'Preview attachment')}"><i class="fas fa-paperclip"></i></button>` : ''}
                     <button class="btn btn-sm btn-success btn-icon" onclick="app.approveLeave(${leave.id})" title="Approve"><i class="fas fa-check"></i></button>
                     <button class="btn btn-sm btn-secondary btn-icon" onclick="app.rejectLeave(${leave.id})" title="Reject"><i class="fas fa-times"></i></button>
                 </td>
@@ -2230,8 +2413,7 @@ class AttendanceApp {
         }
 
         tbody.innerHTML = leaves.map(leave => {
-            const typeKey = 'leaveType' + this.formatLeaveTypeKey(leave.leaveType);
-            const typeLabel = this.translate(typeKey, leave.leaveType);
+            const typeLabel = this.escapeHtml(leave.leaveTypeName || leave.leaveTypeCode || '-');
             const daysText = leave.totalDays + ' ' + (leave.totalDays > 1 ? this.translate('leaveDays', 'days') : this.translate('leaveDay', 'day'));
 
             return `
@@ -2271,34 +2453,212 @@ class AttendanceApp {
         }
     }
 
-    openLeaveModal() {
+    async populateLeaveTypeDropdown() {
+        try {
+            const response = await this.ajaxGet('/api/leave-types/active');
+            const select = document.getElementById('leave-type');
+            if (!select || !response.success) return;
+            this.leaveTypes = response.data;
+            const placeholder = select.querySelector('option[value=""]');
+            select.innerHTML = '';
+            if (placeholder) select.appendChild(placeholder);
+            response.data.forEach(type => {
+                const opt = document.createElement('option');
+                opt.value = type.id;
+                opt.textContent = type.name || type.nameEn || type.code;
+                select.appendChild(opt);
+            });
+        } catch (e) {
+            console.error('Failed to load leave types for dropdown:', e);
+        }
+    }
+
+    /** Recompute and show the inclusive number of days for the selected range. */
+    updateLeaveDayCount() {
+        const box = document.getElementById('leave-duration-box');
+        const out = document.getElementById('leave-days-count');
+        if (!box || !out) return;
+        const start = document.getElementById('leave-start-date').value;
+        const end = document.getElementById('leave-end-date').value;
+        if (!start || !end) { box.style.display = 'none'; return; }
+        const s = new Date(start), e = new Date(end);
+        if (isNaN(s) || isNaN(e) || e < s) { box.style.display = 'none'; return; }
+        const days = Math.round((e - s) / (1000 * 60 * 60 * 24)) + 1;
+        const unit = days > 1 ? this.translate('leaveDays', 'days') : this.translate('leaveDay', 'day');
+        out.textContent = days + ' ' + unit;
+        box.style.display = '';
+    }
+
+    /**
+     * Open the leave modal. With no id: a blank request form. With an id: load that leave and show
+     * it for edit (PENDING/APPROVED) or read-only preview (REJECTED/CANCELLED).
+     */
+    async openLeaveModal(id) {
         const modal = document.getElementById('leave-modal');
+        const title = document.getElementById('leave-modal-title');
+        const submitBtn = document.getElementById('leave-submit-btn');
+        const empSelect = document.getElementById('leave-employee');
+        const currentBox = document.getElementById('leave-attachment-current');
+
+        // Reset the form
         document.getElementById('leave-id-hidden').value = '';
-        document.getElementById('leave-employee').value = '';
-        document.getElementById('leave-type').value = 'ANNUAL';
+        document.getElementById('leave-remove-attachment').value = 'false';
+        empSelect.value = '';
+        empSelect.disabled = false;
+        document.getElementById('leave-type').value = '';
         document.getElementById('leave-start-date').value = '';
         document.getElementById('leave-end-date').value = '';
         document.getElementById('leave-reason').value = '';
-        modal.classList.add('active');
+        const fileInput = document.getElementById('leave-file');
+        fileInput.value = '';
+        currentBox.style.display = 'none';
+        currentBox.innerHTML = '';
+        document.getElementById('leave-duration-box').style.display = 'none';
+        this.setLeaveFormReadonly(false);
+
+        if (!id) {
+            title.textContent = this.translate('leaveRequestLeave', 'Request Leave');
+            submitBtn.style.display = '';
+            submitBtn.textContent = this.translate('leaveSubmit', 'Submit Request');
+            modal.classList.add('active');
+            return;
+        }
+
+        try {
+            const response = await this.ajaxGet(`/api/leaves/${id}`);
+            if (!response.success) { this.showToast(response.message, 'error'); return; }
+            const leave = response.data;
+            const editable = leave.status === 'PENDING' || leave.status === 'APPROVED';
+
+            document.getElementById('leave-id-hidden').value = leave.id;
+            empSelect.value = leave.employeeDbId;
+            empSelect.disabled = true; // employee is fixed once requested
+            document.getElementById('leave-type').value = leave.leaveTypeId || '';
+            document.getElementById('leave-start-date').value = leave.startDate || '';
+            document.getElementById('leave-end-date').value = leave.endDate || '';
+            document.getElementById('leave-reason').value = leave.reason || '';
+            this.updateLeaveDayCount();
+            this.renderCurrentAttachment(leave, editable);
+
+            if (editable) {
+                title.textContent = this.translate('leaveEditLeave', 'Edit Leave');
+                submitBtn.style.display = '';
+                submitBtn.textContent = this.translate('leaveSave', 'Save Changes');
+                this.setLeaveFormReadonly(false);
+                empSelect.disabled = true;
+            } else {
+                title.textContent = this.translate('leaveDetails', 'Leave Details');
+                submitBtn.style.display = 'none';
+                this.setLeaveFormReadonly(true);
+            }
+            modal.classList.add('active');
+        } catch (e) {
+            this.showToast(this.translate('operationFailed', 'Operation failed'), 'error');
+        }
+    }
+
+    /** Enable/disable the editable inputs for preview-only (rejected/cancelled) leaves. */
+    setLeaveFormReadonly(readonly) {
+        ['leave-type', 'leave-start-date', 'leave-end-date', 'leave-reason', 'leave-file']
+            .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = readonly; });
+    }
+
+    /** Show the existing attachment (if any) inside the edit modal, with preview + remove controls. */
+    renderCurrentAttachment(leave, editable) {
+        const box = document.getElementById('leave-attachment-current');
+        if (!leave.attachmentUrl) { box.style.display = 'none'; box.innerHTML = ''; return; }
+        const name = this.escapeHtml(leave.attachmentFilename || 'attachment');
+        const removeBtn = editable
+            ? `<button type="button" class="btn btn-sm btn-secondary btn-icon" onclick="app.markLeaveAttachmentRemoved()" title="${this.translate('leaveRemoveAttachment', 'Remove attachment')}"><i class="fas fa-trash"></i></button>`
+            : '';
+        box.innerHTML = `
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--hk-bg-hover,#f1f5f9);border-radius:8px;">
+                <i class="fas fa-paperclip"></i>
+                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</span>
+                <button type="button" class="btn btn-sm btn-secondary btn-icon" onclick="app.previewLeaveAttachment(${leave.id})" title="${this.translate('leaveAttachmentPreview', 'Preview')}"><i class="fas fa-eye"></i></button>
+                ${removeBtn}
+            </div>
+            <small style="color:var(--hk-text-muted);">${this.translate('leaveReplaceHint', 'Choosing a new file replaces this one.')}</small>`;
+        box.style.display = '';
+    }
+
+    /** Flag the current attachment for removal on save, and hide it from the modal. */
+    markLeaveAttachmentRemoved() {
+        document.getElementById('leave-remove-attachment').value = 'true';
+        const box = document.getElementById('leave-attachment-current');
+        box.style.display = 'none';
+        box.innerHTML = '';
+    }
+
+    /**
+     * Open the preview modal for a leave's attachment. Only the leave id is passed in (avoiding
+     * untrusted filenames in markup); the content type / filename are fetched from the server.
+     */
+    async previewLeaveAttachment(id) {
+        const url = `/api/leaves/${id}/attachment`;
+        const body = document.getElementById('leave-attachment-preview-body');
+        const link = document.getElementById('leave-attachment-download');
+        link.href = url;
+        let contentType = '', filename = '';
+        try {
+            const res = await this.ajaxGet(`/api/leaves/${id}`);
+            if (res.success && res.data) {
+                contentType = res.data.attachmentContentType || '';
+                filename = res.data.attachmentFilename || '';
+            }
+        } catch (e) { /* fall back to a plain link below */ }
+
+        if (contentType.startsWith('image/')) {
+            body.innerHTML = `<img src="${url}" alt="${this.escapeHtml(filename)}" style="max-width:100%;max-height:70vh;border-radius:8px;">`;
+        } else if (contentType === 'application/pdf') {
+            body.innerHTML = `<iframe src="${url}" style="width:100%;height:70vh;border:none;" title="${this.escapeHtml(filename)}"></iframe>`;
+        } else {
+            body.innerHTML = `<p style="padding:20px;">${this.escapeHtml(filename || 'attachment')}</p>`;
+        }
+        document.getElementById('leave-attachment-modal').classList.add('active');
     }
 
     async saveLeave() {
-        const data = {
-            employeeDbId: parseInt(document.getElementById('leave-employee').value),
-            leaveType: document.getElementById('leave-type').value,
-            startDate: document.getElementById('leave-start-date').value,
-            endDate: document.getElementById('leave-end-date').value,
-            reason: document.getElementById('leave-reason').value
-        };
+        const typeValue = document.getElementById('leave-type').value;
+        if (!typeValue) {
+            this.showToast(this.translate('leaveSelectTypeRequired', 'Please select a leave type'), 'error');
+            return;
+        }
+        const startDate = document.getElementById('leave-start-date').value;
+        const endDate = document.getElementById('leave-end-date').value;
+        if (!startDate || !endDate || new Date(endDate) < new Date(startDate)) {
+            this.showToast(this.translate('leaveDateRangeInvalid', 'End date must be on or after the start date'), 'error');
+            return;
+        }
+        const id = document.getElementById('leave-id-hidden').value;
+        const fileInput = document.getElementById('leave-file');
+
+        const form = new FormData();
+        form.append('leaveTypeId', typeValue);
+        form.append('startDate', startDate);
+        form.append('endDate', endDate);
+        form.append('reason', document.getElementById('leave-reason').value || '');
+        if (fileInput.files && fileInput.files.length > 0) {
+            form.append('file', fileInput.files[0]);
+        }
+
+        let url;
+        if (id) {
+            url = `/api/leaves/${id}/update`;
+            form.append('removeAttachment', document.getElementById('leave-remove-attachment').value);
+        } else {
+            url = '/api/leaves';
+            form.append('employeeDbId', document.getElementById('leave-employee').value);
+        }
 
         try {
-            const response = await this.ajaxPost('/api/leaves', data);
+            const response = await this.ajaxUpload(url, form);
             if (response.success) {
-                this.showToast(this.translate('leaveCreated', 'Leave request created'), 'success');
+                this.showToast(id
+                    ? this.translate('leaveUpdated', 'Leave updated')
+                    : this.translate('leaveCreated', 'Leave request created'), 'success');
                 this.closeModal('leave-modal');
-                this.loadLeaves();
-                this.loadPendingLeaves();
-                this.loadLeaveSummary();
+                this.refreshLeaveData();
             } else {
                 this.showToast(response.message, 'error');
             }
@@ -2374,6 +2734,157 @@ class AttendanceApp {
             const type = row.getAttribute('data-type') || '';
             row.style.display = (name.includes(lowerQuery) || type.includes(lowerQuery)) ? '' : 'none';
         });
+    }
+
+    // ==================== LEAVE TYPES PAGE ====================
+    initLeaveTypesPage() {
+        this.loadLeaveTypes();
+
+        document.getElementById('btn-add-leave-type')?.addEventListener('click', () => {
+            this.openLeaveTypeModal();
+        });
+
+        document.getElementById('leave-type-form')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.saveLeaveType();
+        });
+
+        const searchInput = document.getElementById('leave-type-search');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                const q = e.target.value.toLowerCase();
+                document.querySelectorAll('#leave-types-table-body tr').forEach(row => {
+                    const name = row.getAttribute('data-name') || '';
+                    row.style.display = name.includes(q) ? '' : 'none';
+                });
+            });
+        }
+    }
+
+    async loadLeaveTypes() {
+        try {
+            const response = await this.ajaxGet('/api/leave-types');
+            if (response.success) {
+                this.leaveTypesAll = response.data;
+                this.renderLeaveTypesTable(response.data);
+            }
+        } catch (e) {
+            console.error('Failed to load leave types:', e);
+            this.showToast(this.translate('leaveTypesLoadFailed', 'Failed to load leave types'), 'error');
+        }
+    }
+
+    renderLeaveTypesTable(types) {
+        const tbody = document.getElementById('leave-types-table-body');
+        if (!tbody) return;
+        if (!types.length) {
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--hk-text-muted);padding:30px;">${this.translate('leaveTypesNoTypes', 'No leave types found')}</td></tr>`;
+            return;
+        }
+        const canModify = this.can('LEAVES', 'MODIFY');
+        const canDelete = this.can('LEAVES', 'DELETE');
+        tbody.innerHTML = types.map(type => {
+            const nameEn = this.escapeHtml(type.nameEn || type.code || '-');
+            const nameKu = this.escapeHtml(type.nameKu || '-');
+            const activeLabel = type.isActive
+                ? this.translate('leaveTypesActive', 'Active')
+                : this.translate('leaveTypesInactive', 'Inactive');
+            const statusClass = type.isActive ? 'badge-approved' : 'badge-rejected';
+            const usage = type.usageCount || 0;
+
+            let actions = '';
+            if (canModify) {
+                actions += `<button class="btn btn-sm btn-secondary btn-icon" onclick="app.openLeaveTypeModal(${type.id})" title="${this.translate('leaveTypesEdit', 'Edit')}"><i class="fas fa-edit"></i></button>`;
+            }
+            if (canDelete) {
+                if (type.isActive) {
+                    actions += `<button class="btn btn-sm btn-secondary btn-icon" onclick="app.deactivateLeaveType(${type.id})" title="${this.translate('leaveTypesDeactivate', 'Deactivate')}"><i class="fas fa-ban"></i></button>`;
+                }
+                actions += `<button class="btn btn-sm btn-secondary btn-icon" onclick="app.deleteLeaveType(${type.id})" title="${this.translate('leaveTypesDelete', 'Delete')}"><i class="fas fa-trash"></i></button>`;
+            }
+
+            return `
+            <tr data-name="${nameEn.toLowerCase()} ${nameKu.toLowerCase()}">
+                <td>${nameEn}</td>
+                <td dir="rtl">${nameKu}</td>
+                <td>${usage}</td>
+                <td><span class="badge ${statusClass}">${activeLabel}</span></td>
+                <td>${actions || '-'}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    openLeaveTypeModal(id) {
+        const modal = document.getElementById('leave-type-modal');
+        const title = document.getElementById('leave-type-modal-title');
+        document.getElementById('leave-type-id-hidden').value = id || '';
+        const type = id && this.leaveTypesAll ? this.leaveTypesAll.find(t => t.id === id) : null;
+        document.getElementById('leave-type-name-en').value = type ? (type.nameEn || '') : '';
+        document.getElementById('leave-type-name-ku').value = type ? (type.nameKu || '') : '';
+        document.getElementById('leave-type-active').checked = type ? !!type.isActive : true;
+        if (title) {
+            title.textContent = type
+                ? this.translate('leaveTypeModalEdit', 'Edit Leave Type')
+                : this.translate('leaveTypeModalAdd', 'Add Leave Type');
+        }
+        modal.classList.add('active');
+    }
+
+    async saveLeaveType() {
+        const id = document.getElementById('leave-type-id-hidden').value;
+        const data = {
+            nameEn: document.getElementById('leave-type-name-en').value.trim(),
+            nameKu: document.getElementById('leave-type-name-ku').value.trim(),
+            isActive: document.getElementById('leave-type-active').checked
+        };
+        if (!data.nameEn) {
+            this.showToast(this.translate('leaveTypesOperationFailed', 'Operation failed'), 'error');
+            return;
+        }
+        try {
+            const response = id
+                ? await this.ajaxPut(`/api/leave-types/${id}`, data)
+                : await this.ajaxPost('/api/leave-types', data);
+            if (response.success) {
+                this.showToast(this.translate(id ? 'leaveTypeUpdated' : 'leaveTypeCreated', id ? 'Leave type updated' : 'Leave type created'), 'success');
+                this.closeModal('leave-type-modal');
+                this.loadLeaveTypes();
+            } else {
+                this.showToast(response.message || this.translate('leaveTypesOperationFailed', 'Operation failed'), 'error');
+            }
+        } catch (e) {
+            this.showToast(this.translate('leaveTypesOperationFailed', 'Operation failed'), 'error');
+        }
+    }
+
+    async deactivateLeaveType(id) {
+        if (!confirm(this.translate('leaveTypesDeleteConfirm', 'Deactivate this leave type?'))) return;
+        try {
+            const response = await this.ajaxDelete(`/api/leave-types/${id}`);
+            if (response.success) {
+                this.showToast(this.translate('leaveTypeDeactivated', 'Leave type deactivated'), 'success');
+                this.loadLeaveTypes();
+            } else {
+                this.showToast(response.message || this.translate('leaveTypesOperationFailed', 'Operation failed'), 'error');
+            }
+        } catch (e) {
+            this.showToast(this.translate('leaveTypesOperationFailed', 'Operation failed'), 'error');
+        }
+    }
+
+    async deleteLeaveType(id) {
+        if (!confirm(this.translate('leaveTypesDeletePermanentConfirm', 'Permanently delete this leave type? Only possible if no leave uses it.'))) return;
+        try {
+            const response = await this.ajaxDelete(`/api/leave-types/${id}/permanent`);
+            if (response.success) {
+                this.showToast(this.translate('leaveTypeDeleted', 'Leave type deleted'), 'success');
+                this.loadLeaveTypes();
+            } else {
+                this.showToast(response.message || this.translate('leaveTypesOperationFailed', 'Operation failed'), 'error');
+            }
+        } catch (e) {
+            this.showToast(this.translate('leaveTypesOperationFailed', 'Operation failed'), 'error');
+        }
     }
 
     formatDate(dateStr) {

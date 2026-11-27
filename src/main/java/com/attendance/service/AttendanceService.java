@@ -75,11 +75,24 @@ public class AttendanceService {
     /**
      * Process a detection using the camera-reported event time when available.
      * Falls back to the server clock when {@code eventTimeMillis} is null.
+     * The recognizer is assumed to be the camera.
      */
     @Transactional
     public AttendanceDTO processDetection(String employeeId, String deviceId,
                                           Double similarity, String direction, String faceImageUrl,
                                           Long eventTimeMillis) {
+        return processDetection(employeeId, deviceId, similarity, direction, faceImageUrl,
+                eventTimeMillis, "CAMERA");
+    }
+
+    /**
+     * Process a detection, recording which recognizer identified the employee
+     * ({@code CAMERA} or {@code INSIGHTFACE}).
+     */
+    @Transactional
+    public AttendanceDTO processDetection(String employeeId, String deviceId,
+                                          Double similarity, String direction, String faceImageUrl,
+                                          Long eventTimeMillis, String recognitionSource) {
         Employee employee = employeeRepository.findByEmployeeId(employeeId)
                 .orElseThrow(() -> new RuntimeException("Employee not found: " + employeeId));
 
@@ -109,6 +122,7 @@ public class AttendanceService {
             record.setStatus(determineStatus(employee, record.getCheckIn(), now));
             record.setDeviceId(deviceId);
             record.setSimilarityScore(similarity);
+            record.setRecognitionSource(recognitionSource);
         } else {
             record = AttendanceRecord.builder()
                     .employee(employee)
@@ -119,6 +133,7 @@ public class AttendanceService {
                     .similarityScore(similarity)
                     .direction(direction)
                     .faceImageUrl(faceImageUrl)
+                    .recognitionSource(recognitionSource)
                     .build();
         }
 
@@ -238,34 +253,39 @@ public class AttendanceService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Push today's present / absent / late counters. Counts are kept per employee group
+     * so every user only sees the totals of the groups they are allowed to view.
+     */
     @Transactional(readOnly = true)
     public void broadcastStats() {
         LocalDate today = LocalDate.now();
 
-        // Count employees on leave today
-        long onLeaveCount = leaveRepository.findActiveLeavesOnDate(today).size();
+        // index 0 = present, 1 = absent, 2 = late; key = group id (null = no group)
+        java.util.Map<Long, int[]> countsByGroup = new java.util.HashMap<>();
 
-        // Get expected employees (excluding those on leave)
-        List<Employee> expectedEmployees = getExpectedEmployeesToday();
-        long expectedCount = expectedEmployees.size();
-
-        // Count present/late from attendance records
         List<AttendanceRecord> todayRecords = attendanceRepository.findByAttendanceDate(today);
-        long present = todayRecords.stream()
-                .filter(r -> r.getStatus() == AttendanceRecord.AttendanceStatus.PRESENT)
-                .count();
-        long late = todayRecords.stream()
-                .filter(r -> r.getStatus() == AttendanceRecord.AttendanceStatus.LATE)
-                .count();
+        java.util.Set<Long> checkedIn = new java.util.HashSet<>();
+        for (AttendanceRecord r : todayRecords) {
+            Employee emp = r.getEmployee();
+            checkedIn.add(emp.getId());
+            int[] counts = countsByGroup.computeIfAbsent(groupIdOf(emp), k -> new int[3]);
+            if (r.getStatus() == AttendanceRecord.AttendanceStatus.PRESENT) counts[0]++;
+            if (r.getStatus() == AttendanceRecord.AttendanceStatus.LATE) counts[2]++;
+        }
 
-        // Absent = expected - those who checked in
-        long checkedIn = todayRecords.stream()
-                .map(r -> r.getEmployee().getId())
-                .distinct()
-                .count();
-        long absent = Math.max(0, expectedCount - checkedIn);
+        // Absent = expected today (not on leave, scheduled to work) and no record yet
+        for (Employee emp : getExpectedEmployeesToday()) {
+            if (!checkedIn.contains(emp.getId())) {
+                countsByGroup.computeIfAbsent(groupIdOf(emp), k -> new int[3])[1]++;
+            }
+        }
 
-        webSocketService.broadcastStatsUpdate((int) present, (int) absent, (int) late);
+        webSocketService.broadcastStatsUpdate(countsByGroup);
+    }
+
+    private static Long groupIdOf(Employee emp) {
+        return emp.getGroup() != null ? emp.getGroup().getId() : null;
     }
 
     @Scheduled(fixedRateString = "${attendance.sync.interval:2000}")
@@ -401,6 +421,8 @@ public class AttendanceService {
     private AttendanceDTO toDTO(AttendanceRecord record) {
         return AttendanceDTO.builder()
                 .id(record.getId())
+                .employeeDbId(record.getEmployee().getId())
+                .groupId(groupIdOf(record.getEmployee()))
                 .employeeId(record.getEmployee().getEmployeeId())
                 .employeeName(record.getEmployee().getFullName())
                 .department(record.getEmployee().getDepartment())

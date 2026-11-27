@@ -1,33 +1,29 @@
 package com.attendance.config;
 
-import org.springframework.beans.factory.annotation.Value;
+import com.attendance.security.PermissionInterceptor;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
-import java.nio.file.Paths;
-
 /**
- * Serves face images captured from cameras that are stored on disk.
- * Images are written under {@code attendance.face-storage-dir} and exposed
- * over HTTP at {@code /faces/**}.
+ * Installs the permission check that runs before every controller method.
+ * <p>
+ * Face images are NOT served as static resources (they are personal biometric
+ * data): {@code FaceImageController} serves {@code /faces/**} with access control,
+ * so that path is intentionally not excluded from the interceptor here.
  */
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
-    @Value("${attendance.face-storage-dir:faces}")
-    private String faceStorageDir;
+    private final PermissionInterceptor permissionInterceptor;
+
+    public WebConfig(PermissionInterceptor permissionInterceptor) {
+        this.permissionInterceptor = permissionInterceptor;
+    }
 
     @Override
-    public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        String location = Paths.get(faceStorageDir).toAbsolutePath().normalize()
-                .toUri().toString();
-        // Spring requires the location to end with a trailing slash so that
-        // relative paths are appended correctly (e.g. .../faces/ + captures/x.jpg).
-        if (!location.endsWith("/")) {
-            location += "/";
-        }
-        registry.addResourceHandler("/faces/**")
-                .addResourceLocations(location);
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(permissionInterceptor)
+                .excludePathPatterns("/css/**", "/js/**", "/images/**", "/fonts/**", "/favicon.ico");
     }
 }

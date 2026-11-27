@@ -15,7 +15,9 @@ public interface LeaveRepository extends JpaRepository<Leave, Long> {
 
     List<Leave> findByStatus(Leave.LeaveStatus status);
 
-    List<Leave> findByLeaveType(Leave.LeaveType leaveType);
+    List<Leave> findByLeaveTypeId(Long leaveTypeId);
+
+    long countByLeaveTypeId(Long leaveTypeId);
 
     @Query("SELECT l FROM Leave l WHERE l.status = 'APPROVED' AND l.startDate <= :date AND l.endDate >= :date")
     List<Leave> findActiveLeavesOnDate(LocalDate date);

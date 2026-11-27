@@ -21,4 +21,13 @@ public class FaceCaptureDTO {
     private Double similarity;
     /** True when the capture matched a known employee. */
     private boolean matched;
+
+    /** Recognizer that looked at this capture: CAMERA or INSIGHTFACE. */
+    private String recognitionSource;
+    /** For an uncertain InsightFace suggestion awaiting review: the suggested employee + score. */
+    private String candidateEmployeeId;
+    private String candidateEmployeeName;
+    private Double candidateScore;
+    /** Review state: NONE / PENDING_REVIEW / CONFIRMED / REJECTED. */
+    private String reviewStatus;
 }

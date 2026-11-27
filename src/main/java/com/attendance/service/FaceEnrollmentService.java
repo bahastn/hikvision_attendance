@@ -8,9 +8,11 @@ import com.attendance.entity.EmployeeCameraTarget;
 import com.attendance.repository.CameraConfigRepository;
 import com.attendance.repository.EmployeeCameraTargetRepository;
 import com.attendance.repository.EmployeeRepository;
+import com.attendance.service.insightface.FaceEmbeddingEvents;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +50,7 @@ public class FaceEnrollmentService {
     private final EmployeeCameraTargetRepository targetRepository;
     private final HikvisionIsapiClient isapiClient;
     private final EmployeeService employeeService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Value("${attendance.camera.face-lib-id:1}")
     private String faceLibId;
@@ -122,6 +125,10 @@ public class FaceEnrollmentService {
         }
         employeeRepository.save(employee);
 
+        // Regenerate the InsightFace embedding from the just-stored photo (after commit, async;
+        // no-op when the feature is off). The photo is on disk whether or not a camera accepted it.
+        eventPublisher.publishEvent(new FaceEmbeddingEvents.FaceEnrolled(employee.getId()));
+
         String message;
         if (cameras.isEmpty()) {
             message = "No active camera selected — the face was not pushed to any camera.";
@@ -150,6 +157,9 @@ public class FaceEnrollmentService {
         saveTarget(employee, camera, pid);
         employee.setFaceTemplateId(pid);
         employeeRepository.save(employee);
+
+        // Ensure the InsightFace embedding exists for this employee (after commit, async; no-op when off).
+        eventPublisher.publishEvent(new FaceEmbeddingEvents.FaceEnrolled(employee.getId()));
 
         return new EnrollmentResult(employeeService.getEmployeeById(employeeDbId),
                 "Face sent to " + camera.getCameraName() + (pid != null ? " (PID " + pid + ")" : ""));
@@ -183,6 +193,9 @@ public class FaceEnrollmentService {
         employee.setFaceTemplateId(null);
         employee.setFaceImageUrl(null);
         employeeRepository.save(employee);
+
+        // Drop the InsightFace embedding too (after commit, async; no-op when off).
+        eventPublisher.publishEvent(new FaceEmbeddingEvents.FaceRemoved(employeeDbId));
     }
 
     /** Remove the employee's face from a single camera (camera-target UI). */

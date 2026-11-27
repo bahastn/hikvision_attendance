@@ -49,7 +49,7 @@
         <div class="card">
             <div class="card-header">
                 <span class="card-title"><i class="fas fa-list icon-spacing"></i><span th:text="#{leave.allLeaves}">All Leave Requests</span></span>
-                <button class="btn btn-primary" id="btn-add-leave">
+                <button class="btn btn-primary" id="btn-add-leave" th:if="${@perm.can('LEAVES', 'MODIFY')}">
                     <i class="fas fa-plus"></i> <span th:text="#{leave.addLeave}">Request Leave</span>
                 </button>
             </div>
@@ -171,12 +171,13 @@
     <div class="modal-overlay" id="leave-modal">
         <div class="modal">
             <div class="modal-header">
-                <h3 th:text="#{leave.requestLeave}">Request Leave</h3>
+                <h3 id="leave-modal-title" th:text="#{leave.requestLeave}">Request Leave</h3>
                 <button class="modal-close" onclick="app.closeModal('leave-modal')">&times;</button>
             </div>
             <form id="leave-form">
                 <div class="modal-body">
                     <input type="hidden" id="leave-id-hidden">
+                    <input type="hidden" id="leave-remove-attachment" value="false">
                     <div class="form-group">
                         <label class="form-label" th:text="#{leave.selectEmployee}">Select Employee *</label>
                         <select class="form-control" id="leave-employee" required>
@@ -186,13 +187,7 @@
                     <div class="form-group">
                         <label class="form-label" th:text="#{leave.leaveType}">Leave Type *</label>
                         <select class="form-control" id="leave-type" required>
-                            <option value="ANNUAL" th:text="#{leave.type.annual}">Annual Leave</option>
-                            <option value="SICK" th:text="#{leave.type.sick}">Sick Leave</option>
-                            <option value="CASUAL" th:text="#{leave.type.casual}">Casual Leave</option>
-                            <option value="MATERNITY" th:text="#{leave.type.maternity}">Maternity Leave</option>
-                            <option value="PATERNITY" th:text="#{leave.type.paternity}">Paternity Leave</option>
-                            <option value="UNPAID" th:text="#{leave.type.unpaid}">Unpaid Leave</option>
-                            <option value="OTHER" th:text="#{leave.type.other}">Other</option>
+                            <option value="" th:text="#{leave.selectTypePlaceholder}">-- Select Type --</option>
                         </select>
                     </div>
                     <div class="row">
@@ -209,16 +204,49 @@
                             </div>
                         </div>
                     </div>
+                    <!-- Live-computed number of days for the chosen range -->
+                    <div class="form-group" id="leave-duration-box" style="display:none;">
+                        <div style="padding:10px 14px;background:var(--hk-bg-hover,#f1f5f9);border-radius:8px;font-weight:600;">
+                            <i class="fas fa-calendar-day icon-spacing"></i>
+                            <span th:text="#{leave.duration}">Duration</span>:
+                            <span id="leave-days-count" style="color:var(--hk-primary,#f59e0b);">-</span>
+                        </div>
+                    </div>
                     <div class="form-group">
                         <label class="form-label" th:text="#{leave.reason}">Reason</label>
                         <textarea class="form-control" id="leave-reason" rows="3" th:placeholder="#{leave.reasonPlaceholder}"></textarea>
                     </div>
+                    <!-- Supporting document (image or PDF) -->
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{leave.attachment}">Attachment</label>
+                        <input type="file" class="form-control" id="leave-file" accept="image/jpeg,image/png,image/gif,application/pdf">
+                        <small style="color:var(--hk-text-muted);" th:text="#{leave.attachmentHint}">Image (JPG, PNG, GIF) or PDF, up to 10&nbsp;MB.</small>
+                        <div id="leave-attachment-current" style="display:none;margin-top:10px;"></div>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="app.closeModal('leave-modal')" th:text="#{leave.cancel}">Cancel</button>
-                    <button type="submit" class="btn btn-primary" th:text="#{leave.submit}">Submit Request</button>
+                    <button type="submit" class="btn btn-primary" id="leave-submit-btn" th:text="#{leave.submit}">Submit Request</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Attachment Preview Modal -->
+    <div class="modal-overlay" id="leave-attachment-modal">
+        <div class="modal" style="max-width:820px;">
+            <div class="modal-header">
+                <h3 th:text="#{leave.attachmentPreview}">Attachment Preview</h3>
+                <button class="modal-close" onclick="app.closeModal('leave-attachment-modal')">&times;</button>
+            </div>
+            <div class="modal-body" id="leave-attachment-preview-body" style="text-align:center;">
+            </div>
+            <div class="modal-footer">
+                <a id="leave-attachment-download" class="btn btn-secondary" href="#" target="_blank" rel="noopener">
+                    <i class="fas fa-download icon-spacing"></i><span th:text="#{leave.download}">Open / Download</span>
+                </a>
+                <button type="button" class="btn btn-primary" onclick="app.closeModal('leave-attachment-modal')" th:text="#{leave.close}">Close</button>
+            </div>
         </div>
     </div>
 </div>

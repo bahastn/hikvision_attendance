@@ -6,6 +6,7 @@ import com.attendance.dto.FaceEvent;
 import com.attendance.entity.CameraConfig;
 import com.attendance.entity.Employee;
 import com.attendance.entity.FaceCapture;
+import com.attendance.repository.EmployeeRepository;
 import com.attendance.repository.FaceCaptureRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +40,8 @@ public class FaceCaptureService {
     private final FaceCaptureRepository captureRepository;
     private final EmployeeService employeeService;
     private final FaceEnrollmentService faceEnrollmentService;
+    private final AttendanceService attendanceService;
+    private final EmployeeRepository employeeRepository;
 
     @Value("${attendance.face-storage-dir:faces}")
     private String faceStorageDir;
@@ -57,31 +60,125 @@ public class FaceCaptureService {
             return;
         }
         try {
-            Path dir = Paths.get(faceStorageDir, "captures");
-            Files.createDirectories(dir);
-
-            String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"));
-            String filename = camera.getId() + "_" + ts + "_" + ThreadLocalRandom.current().nextInt(1000) + ".jpg";
-            Files.write(dir.resolve(filename), picture);
-
-            LocalDateTime capturedAt = event.getEventTimeMillis() != null
-                    ? LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(event.getEventTimeMillis()),
-                            java.time.ZoneId.systemDefault())
-                    : LocalDateTime.now();
+            String imageUrl = writeCaptureFile(camera.getId(), picture);
+            LocalDateTime capturedAt = capturedAtOf(event);
             captureRepository.save(FaceCapture.builder()
                     .cameraId(camera.getId())
                     .cameraName(camera.getCameraName())
-                    .imageUrl("/faces/captures/" + filename)
+                    .imageUrl(imageUrl)
                     .matchedEmployeeId(employee != null ? employee.getEmployeeId() : event.getEmployeeNo())
                     .matchedEmployeeName(employee != null ? employee.getFullName() : null)
                     .personName(event.getPersonName())
                     .similarity(event.getSimilarity())
+                    .recognitionSource("CAMERA")
+                    .reviewStatus(FaceCapture.ReviewStatus.NONE)
                     .capturedAt(capturedAt)
                     .expiresAt(capturedAt.plusHours(retentionHours))
                     .build());
         } catch (IOException e) {
             log.warn("Failed to store captured face: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Store an uncertain InsightFace suggestion as a capture awaiting human review. The reviewer can
+     * confirm (records attendance) or reject it. These rows are exempt from the retention purge until
+     * reviewed, so a pending decision is never silently lost.
+     */
+    @Transactional
+    public void recordUncertainMatch(CameraConfig camera, FaceEvent event, byte[] picture,
+                                     Employee candidate, double score) {
+        if (picture == null || picture.length == 0 || candidate == null) {
+            return;
+        }
+        try {
+            String imageUrl = writeCaptureFile(camera.getId(), picture);
+            LocalDateTime capturedAt = capturedAtOf(event);
+            captureRepository.save(FaceCapture.builder()
+                    .cameraId(camera.getId())
+                    .cameraName(camera.getCameraName())
+                    .imageUrl(imageUrl)
+                    .personName(event.getPersonName())
+                    .similarity(event.getSimilarity())
+                    .recognitionSource("INSIGHTFACE")
+                    .candidateEmployeeId(candidate.getEmployeeId())
+                    .candidateEmployeeName(candidate.getFullName())
+                    .candidateScore(score)
+                    .reviewStatus(FaceCapture.ReviewStatus.PENDING_REVIEW)
+                    .capturedAt(capturedAt)
+                    .expiresAt(capturedAt.plusHours(retentionHours))
+                    .build());
+            log.info("Uncertain InsightFace match queued for review: candidate {} ({}), score {}",
+                    candidate.getEmployeeId(), candidate.getFullName(), String.format("%.3f", score));
+        } catch (IOException e) {
+            log.warn("Failed to store uncertain face match: {}", e.getMessage());
+        }
+    }
+
+    /** Write a captured JPEG to the captures directory and return its public URL path. */
+    private String writeCaptureFile(Long cameraId, byte[] picture) throws IOException {
+        Path dir = Paths.get(faceStorageDir, "captures");
+        Files.createDirectories(dir);
+        String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"));
+        String filename = cameraId + "_" + ts + "_" + ThreadLocalRandom.current().nextInt(1000) + ".jpg";
+        Files.write(dir.resolve(filename), picture);
+        return "/faces/captures/" + filename;
+    }
+
+    private LocalDateTime capturedAtOf(FaceEvent event) {
+        return event.getEventTimeMillis() != null
+                ? LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(event.getEventTimeMillis()),
+                        java.time.ZoneId.systemDefault())
+                : LocalDateTime.now();
+    }
+
+    /** Captures awaiting human review (uncertain InsightFace suggestions), newest first. */
+    @Transactional(readOnly = true)
+    public List<FaceCaptureDTO> listPendingReview() {
+        return captureRepository.findByReviewStatusOrderByCapturedAtDesc(FaceCapture.ReviewStatus.PENDING_REVIEW)
+                .stream().map(this::toDTO).collect(Collectors.toList());
+    }
+
+    /**
+     * Confirm a pending review: record attendance for the chosen employee and mark the capture
+     * CONFIRMED. {@code employeeId} defaults to the stored candidate when blank.
+     */
+    @Transactional
+    public void confirmPendingReview(Long captureId, String employeeId) {
+        FaceCapture capture = captureRepository.findById(captureId)
+                .orElseThrow(() -> new RuntimeException("Face capture not found"));
+        String targetId = (employeeId != null && !employeeId.isBlank())
+                ? employeeId.trim() : capture.getCandidateEmployeeId();
+        if (targetId == null || targetId.isBlank()) {
+            throw new RuntimeException("No employee to confirm for this capture");
+        }
+        Employee employee = employeeRepository.findByEmployeeId(targetId)
+                .orElseThrow(() -> new RuntimeException("Employee not found: " + targetId));
+
+        String direction = attendanceService.hasOpenCheckInToday(employee.getId()) ? "OUT" : "IN";
+        Double scorePercent = capture.getCandidateScore() != null ? capture.getCandidateScore() * 100.0 : null;
+        attendanceService.processDetection(
+                employee.getEmployeeId(),
+                capture.getCameraName() != null ? capture.getCameraName() : "INSIGHTFACE",
+                scorePercent,
+                direction,
+                capture.getImageUrl(),
+                null,
+                "INSIGHTFACE");
+
+        capture.setReviewStatus(FaceCapture.ReviewStatus.CONFIRMED);
+        capture.setMatchedEmployeeId(employee.getEmployeeId());
+        capture.setMatchedEmployeeName(employee.getFullName());
+        captureRepository.save(capture);
+    }
+
+    /** Reject a pending review: no attendance is recorded; the capture is marked REJECTED. */
+    @Transactional
+    public void rejectPendingReview(Long captureId) {
+        FaceCapture capture = captureRepository.findById(captureId)
+                .orElseThrow(() -> new RuntimeException("Face capture not found"));
+        capture.setReviewStatus(FaceCapture.ReviewStatus.REJECTED);
+        captureRepository.save(capture);
     }
 
     /** Captures still within the retention window, newest first. cameraId == null means all cameras. */
@@ -140,7 +237,10 @@ public class FaceCaptureService {
             initialDelayString = "${attendance.face-capture.cleanup-interval-ms:1800000}")
     @Transactional
     public void cleanupExpiredCaptures() {
-        List<FaceCapture> expired = captureRepository.findByExpiresAtBefore(LocalDateTime.now());
+        // Exclude PENDING_REVIEW so an uncertain InsightFace suggestion is never purged before a
+        // reviewer decides on it.
+        List<FaceCapture> expired = captureRepository.findExpiredForCleanup(
+                LocalDateTime.now(), FaceCapture.ReviewStatus.PENDING_REVIEW);
         for (FaceCapture capture : expired) {
             deleteFileQuietly(capture.getImageUrl());
             captureRepository.delete(capture);
@@ -163,6 +263,11 @@ public class FaceCaptureService {
                 .personName(c.getPersonName())
                 .similarity(c.getSimilarity())
                 .matched(c.getMatchedEmployeeId() != null && !c.getMatchedEmployeeId().isBlank())
+                .recognitionSource(c.getRecognitionSource())
+                .candidateEmployeeId(c.getCandidateEmployeeId())
+                .candidateEmployeeName(c.getCandidateEmployeeName())
+                .candidateScore(c.getCandidateScore())
+                .reviewStatus(c.getReviewStatus() != null ? c.getReviewStatus().name() : null)
                 .build();
     }
 
@@ -175,10 +280,19 @@ public class FaceCaptureService {
     }
 
     /** Map a public /faces/... URL back to a file inside the face storage dir. */
-    private Path resolveImagePath(String imageUrl) {
+    private Path resolveImagePath(String imageUrl) throws IOException {
         String relative = imageUrl != null && imageUrl.startsWith("/faces/")
                 ? imageUrl.substring("/faces/".length())
                 : imageUrl;
-        return Paths.get(faceStorageDir).resolve(relative).normalize();
+        if (relative == null || relative.isBlank()) {
+            throw new IOException("Empty image path");
+        }
+        Path base = Paths.get(faceStorageDir).toAbsolutePath().normalize();
+        Path resolved = base.resolve(relative).normalize();
+        // Never touch files outside the face storage directory (e.g. "../../something").
+        if (!resolved.startsWith(base)) {
+            throw new IOException("Image path escapes the face storage directory: " + imageUrl);
+        }
+        return resolved;
     }
 }

@@ -50,6 +50,14 @@ public class AttendanceRecord {
     @Column(name = "direction")
     private String direction;
 
+    /**
+     * Which recognizer produced this record: {@code CAMERA} (Hikvision on-device match) or
+     * {@code INSIGHTFACE} (the secondary fallback layer). Nullable — historical rows and the
+     * camera path may leave it null, which is treated as CAMERA.
+     */
+    @Column(name = "recognition_source")
+    private String recognitionSource;
+
     @Column(name = "notes")
     private String notes;
 

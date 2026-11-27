@@ -28,7 +28,10 @@ public class CameraConfig {
     @Column(name = "username")
     private String username;
 
+    /** Encrypted at rest when APP_ENCRYPTION_KEY is set; never printed by toString(). */
     @Column(name = "password")
+    @Convert(converter = com.attendance.security.EncryptedStringConverter.class)
+    @ToString.Exclude
     private String password;
 
     @Column(name = "protocol")
@@ -54,6 +57,23 @@ public class CameraConfig {
 
     @Column(name = "last_sync")
     private LocalDateTime lastSync;
+
+    /**
+     * High-water mark for raw face-match ingestion: the snapTime of the most recent match
+     * already recorded from this camera's FCSearch history. Persisted so a restart or downtime
+     * resumes from where it left off instead of replaying from "now" and losing the gap.
+     */
+    @Column(name = "last_match_time")
+    private LocalDateTime lastMatchTime;
+
+    /**
+     * Stable identifier for this camera used when pushing matches to the central server.
+     * Optional: set it to the device serial (or any site-wide unique id) so the central
+     * server keeps a stable cameraId even if this camera is deleted and re-added (which would
+     * change the generated {@link #id}). Falls back to {@link #id} when null.
+     */
+    @Column(name = "external_id")
+    private String externalId;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
