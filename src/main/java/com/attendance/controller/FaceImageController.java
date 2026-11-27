@@ -37,6 +37,8 @@ import java.util.regex.Pattern;
 public class FaceImageController {
 
     private static final Pattern ENROLLED_EMPLOYEE = Pattern.compile("^enrolled/employee_(\\d+)\\.[A-Za-z0-9]+$");
+    /** Extra reference photos of one employee (faces/samples/employee_{id}/...). */
+    private static final Pattern SAMPLE_EMPLOYEE = Pattern.compile("^samples/employee_(\\d+)/[A-Za-z0-9_.-]+$");
 
     @Value("${attendance.face-storage-dir:faces}")
     private String faceStorageDir;
@@ -71,7 +73,7 @@ public class FaceImageController {
     /**
      * Decide who may see this image:
      * <ul>
-     *   <li>an employee's enrolled photo: anyone who may view that employee (their group),
+     *   <li>an employee's enrolled photo or extra face sample: anyone who may view that employee (their group),
      *       or anyone with face-recognition view;</li>
      *   <li>any other capture / detection / imported image: face-recognition view
      *       (these come from cameras and are not tied to a single employee group).</li>
@@ -79,6 +81,9 @@ public class FaceImageController {
      */
     private void authorize(String relative) {
         Matcher m = ENROLLED_EMPLOYEE.matcher(relative);
+        if (!m.matches()) {
+            m = SAMPLE_EMPLOYEE.matcher(relative);
+        }
         if (m.matches()) {
             Long employeeId = Long.valueOf(m.group(1));
             if (access.has(AppModule.FACE_RECOGNITION, PermissionAction.VIEW)) {

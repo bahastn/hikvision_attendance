@@ -1029,6 +1029,9 @@ class AttendanceApp {
                     <button class="btn btn-sm btn-secondary btn-icon" onclick="app.openCameraTargetsModal(${emp.id}, this.dataset.name)" data-name="${this.displayName(emp)}" title="${this.translate('employees.manageCameras', 'Cameras')}">
                         <i class="fas fa-camera"></i>
                     </button>
+                    <button class="btn btn-sm btn-secondary btn-icon" onclick="app.openFaceSamplesModal(${emp.id}, this.dataset.name)" data-name="${this.displayName(emp)}" title="${this.translate('faceSamples.title', 'Face photos')}">
+                        <i class="fas fa-images"></i>
+                    </button>
                     <button class="btn btn-sm btn-secondary btn-icon" onclick="app.editEmployee(${emp.id})" title="${this.translate('editEmployee', 'Edit')}">
                         <i class="fas fa-edit"></i>
                     </button>
@@ -1237,6 +1240,129 @@ class AttendanceApp {
         if (!container) return [];
         return Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
             .map(cb => cb.value);
+    }
+
+    // ==================== EMPLOYEE FACE PHOTOS (InsightFace samples) ====================
+    openFaceSamplesModal(employeeId, employeeName) {
+        this.faceSamplesEmployeeId = employeeId;
+        const nameEl = document.getElementById('face-samples-employee');
+        if (nameEl) nameEl.textContent = employeeName || '';
+        const input = document.getElementById('face-samples-input');
+        if (input) input.value = '';
+        const force = document.getElementById('face-samples-force');
+        if (force) force.checked = false;
+        const results = document.getElementById('face-samples-results');
+        if (results) results.innerHTML = '';
+        document.getElementById('face-samples-modal')?.classList.add('active');
+        this.loadFaceSamples();
+    }
+
+    faceSampleSourceLabel(source) {
+        const labels = {
+            ENROLLED: this.translate('faceSamples.source.ENROLLED', 'Camera photo'),
+            UPLOADED: this.translate('faceSamples.source.UPLOADED', 'Uploaded'),
+            REVIEW_CONFIRMED: this.translate('faceSamples.source.REVIEW_CONFIRMED', 'Confirmed capture'),
+            AUTO_LEARNED: this.translate('faceSamples.source.AUTO_LEARNED', 'Learned capture')
+        };
+        return labels[source] || source || '-';
+    }
+
+    async loadFaceSamples() {
+        const grid = document.getElementById('face-samples-grid');
+        const id = this.faceSamplesEmployeeId;
+        if (!grid || !id) return;
+        grid.innerHTML = `<div class="camera-check-empty">${this.translate('loading', 'Loading...')}</div>`;
+        try {
+            const response = await this.ajaxGet(`/api/employees/${id}/face-samples`);
+            if (!response.success) throw new Error(response.message || 'Failed');
+            const data = response.data || {};
+            const enabled = !!data.enabled;
+            const disabledEl = document.getElementById('face-samples-disabled');
+            if (disabledEl) disabledEl.style.display = enabled ? 'none' : '';
+            const uploadEl = document.getElementById('face-samples-upload');
+            if (uploadEl) uploadEl.style.display = enabled ? '' : 'none';
+            const samples = data.samples || [];
+            this._faceSamples = samples;
+            grid.innerHTML = samples.length > 0
+                ? samples.map((s, i) => `
+                    <div class="face-sample-card ${s.primary ? 'face-sample-primary' : ''}">
+                        <img src="${s.imageUrl}" alt="" loading="lazy">
+                        <div class="face-sample-body">
+                            <span class="badge ${s.primary ? 'badge-present' : (s.source === 'UPLOADED' ? 'badge-leave' : 'badge-late')}">${this.faceSampleSourceLabel(s.source)}</span>
+                            <div class="face-sample-meta">
+                                ${s.qualityScore != null ? `${this.translate('faceSamples.quality', 'Quality')} ${Math.round(Number(s.qualityScore) * 100)}%` : ''}
+                                ${s.matchScore != null ? ` &bull; ${this.translate('faceSamples.match', 'Match')} ${Math.round(Number(s.matchScore) * 100)}%` : ''}
+                            </div>
+                            <div class="face-sample-meta">${s.createdAt ? this.formatDate(s.createdAt) : ''}</div>
+                        </div>
+                        ${s.primary ? '' : `<button class="btn btn-sm btn-secondary face-sample-delete" onclick="app.deleteFaceSample(${i})" title="${this.translate('faceSamples.delete', 'Delete')}"><i class="fas fa-trash"></i></button>`}
+                    </div>
+                `).join('')
+                : `<div class="camera-check-empty">${this.translate('faceSamples.none', 'No face photos yet')}</div>`;
+        } catch (e) {
+            grid.innerHTML = `<div class="camera-check-empty">${e.message || this.translate('operationFailed', 'Operation failed')}</div>`;
+        }
+    }
+
+    faceSampleIssueText(result) {
+        const key = `faceSamples.issue.${result.code}`;
+        return this.t[key] ? `${this.t[key]} (${result.message})` : (result.message || result.code);
+    }
+
+    /** Upload the chosen photos one per request so each gets its own accept/reject answer. */
+    async uploadFaceSamples() {
+        const id = this.faceSamplesEmployeeId;
+        const input = document.getElementById('face-samples-input');
+        const files = input ? Array.from(input.files || []) : [];
+        if (!id || files.length === 0) {
+            this.showToast(this.translate('faceSamples.chooseFiles', 'Choose one or more photos first'), 'error');
+            return;
+        }
+        const force = document.getElementById('face-samples-force')?.checked;
+        const button = document.getElementById('face-samples-upload-btn');
+        const resultsEl = document.getElementById('face-samples-results');
+        if (button) button.disabled = true;
+        const lines = [];
+        let added = 0;
+        for (const file of files) {
+            const formData = new FormData();
+            formData.append('photos', file);
+            if (force) formData.append('force', 'true');
+            let result;
+            try {
+                const response = await this.ajaxUpload(`/api/employees/${id}/face-samples`, formData);
+                result = (response.data && response.data[0]) || { accepted: false, code: 'ERROR', message: response.message };
+            } catch (e) {
+                result = { accepted: false, code: 'ERROR', message: e.message };
+            }
+            if (result.accepted) added++;
+            const safeName = (file.name || '').replace(/[<>&"]/g, '');
+            const text = result.accepted
+                ? this.translate('faceSamples.added', 'Added')
+                : this.faceSampleIssueText(result).replace(/[<>&]/g, '');
+            lines.push(`<div class="face-samples-result ${result.accepted ? 'ok' : 'fail'}">
+                <i class="fas ${result.accepted ? 'fa-check' : 'fa-xmark'}"></i> <b>${safeName}</b>: ${text}</div>`);
+            if (resultsEl) resultsEl.innerHTML = lines.join('');
+        }
+        if (button) button.disabled = false;
+        if (input) input.value = '';
+        this.showToast(`${added} / ${files.length} ${this.translate('faceSamples.addedCount', 'photo(s) added')}`,
+            added > 0 ? 'success' : 'error');
+        this.loadFaceSamples();
+    }
+
+    async deleteFaceSample(index) {
+        const sample = (this._faceSamples || [])[index];
+        const id = this.faceSamplesEmployeeId;
+        if (!sample || !id) return;
+        if (!confirm(this.translate('faceSamples.deleteConfirm', 'Delete this photo?'))) return;
+        try {
+            const response = await this.ajaxDelete(`/api/employees/${id}/face-samples/${sample.id}`);
+            this.showToast(response.message || '', response.success ? 'success' : 'error');
+            if (response.success) this.loadFaceSamples();
+        } catch (e) {
+            this.showToast(this.translate('operationFailed', 'Operation failed'), 'error');
+        }
     }
 
     // ==================== EMPLOYEE CAMERA TARGETS ====================

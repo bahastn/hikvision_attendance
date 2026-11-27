@@ -1847,3 +1847,95 @@ select.form-control {
 [dir="rtl"] .table-container {
     font-size: 15px;
 }
+
+/* Employee face photos (InsightFace reference samples) */
+.modal.modal-lg {
+    width: 820px;
+}
+
+.face-samples-upload {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.face-samples-upload input[type="file"] {
+    flex: 1;
+    min-width: 220px;
+}
+
+.face-samples-force {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--hk-text-muted);
+    cursor: pointer;
+}
+
+.face-samples-results {
+    margin-bottom: 12px;
+}
+
+.face-samples-result {
+    font-size: 13px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    margin-bottom: 4px;
+    border: 1px solid var(--hk-border);
+}
+
+.face-samples-result.ok i {
+    color: var(--hk-success);
+}
+
+.face-samples-result.fail i {
+    color: var(--hk-danger);
+}
+
+.face-samples-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+}
+
+.face-sample-card {
+    position: relative;
+    border: 1px solid var(--hk-border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--hk-card-bg);
+}
+
+.face-sample-card.face-sample-primary {
+    border-color: var(--hk-success);
+}
+
+.face-sample-card img {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    display: block;
+    background: var(--hk-border);
+}
+
+.face-sample-body {
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.face-sample-meta {
+    font-size: 11px;
+    color: var(--hk-text-muted);
+    min-height: 13px;
+}
+
+.face-sample-delete {
+    position: absolute;
+    top: 6px;
+    inset-inline-end: 6px;
+}

@@ -39,6 +39,7 @@ public class InsightFaceRestController {
         status.put("enabled", client.isEnabled());
         status.put("available", client.isEnabled() && client.checkHealth());
         status.put("gallerySize", gallery.size());
+        status.put("sampleCount", gallery.sampleCount());
         return ResponseEntity.ok(ApiResponse.success(status));
     }
 

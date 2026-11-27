@@ -1,7 +1,6 @@
 package com.attendance.service.insightface;
 
 import com.attendance.entity.Employee;
-import com.attendance.repository.EmployeeFaceEmbeddingRepository;
 import com.attendance.repository.EmployeeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,7 +27,7 @@ public class InsightFaceBackfillService {
     private final InsightFaceService insightFaceService;
     private final InsightFaceEnrollmentListener photoReader;
     private final EmployeeRepository employeeRepository;
-    private final EmployeeFaceEmbeddingRepository embeddingRepository;
+    private final FaceSampleService sampleService;
 
     /** Run the backfill off the calling thread (startup or the admin endpoint). */
     @Async
@@ -42,7 +41,7 @@ public class InsightFaceBackfillService {
     }
 
     /**
-     * Create embeddings for active employees that have an enrolled photo but no embedding yet.
+     * Create enrollment samples for active employees that have an enrolled photo but no sample yet.
      * Returns the number created. Safe to run repeatedly.
      */
     public int backfill() {
@@ -55,8 +54,8 @@ public class InsightFaceBackfillService {
             if (employee.getId() == null) {
                 continue;
             }
-            if (embeddingRepository.findByEmployeeId(employee.getId()).isPresent()) {
-                continue; // already has an embedding
+            if (sampleService.hasEnrolledSample(employee.getId())) {
+                continue; // already has an enrollment sample
             }
             byte[] jpeg = photoReader.readEnrolledPhoto(employee.getId());
             if (jpeg == null) {

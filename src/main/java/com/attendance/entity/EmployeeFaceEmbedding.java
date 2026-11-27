@@ -6,7 +6,11 @@ import lombok.*;
 import java.time.LocalDateTime;
 
 /**
- * An InsightFace embedding for one employee, used by the secondary (fallback) face-recognition
+ * <b>Legacy</b> (kept only so existing data can be migrated): replaced by {@link EmployeeFaceSample},
+ * which allows several samples per employee. At startup the rows here are copied into ENROLLED
+ * samples; nothing reads this table for matching any more.
+ *
+ * <p>An InsightFace embedding for one employee, used by the secondary (fallback) face-recognition
  * layer. Kept in a separate table (one row per employee) rather than as a column on
  * {@link Employee} so the constantly-loaded {@code Employee} entity stays lean — the 2 KB vector is
  * only read when the gallery is (re)built.
