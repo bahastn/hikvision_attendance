@@ -63,7 +63,7 @@ public class InsightFaceClient {
      * Returns an empty list when disabled, when the sidecar is unreachable, or when no face is
      * found — never throws.
      */
-    public List<FaceEmbedding> embed(byte[] jpeg) {
+    public List<DetectedFace> embed(byte[] jpeg) {
         if (!enabled || jpeg == null || jpeg.length == 0) {
             return List.of();
         }
@@ -96,13 +96,13 @@ public class InsightFaceClient {
         }
     }
 
-    private List<FaceEmbedding> parse(byte[] body) throws Exception {
+    private List<DetectedFace> parse(byte[] body) throws Exception {
         JsonNode root = json.readTree(body);
         JsonNode faces = root.path("faces");
         if (!faces.isArray()) {
             return List.of();
         }
-        List<FaceEmbedding> out = new ArrayList<>(faces.size());
+        List<DetectedFace> out = new ArrayList<>(faces.size());
         for (JsonNode face : faces) {
             JsonNode embNode = face.path("embedding");
             if (!embNode.isArray() || embNode.isEmpty()) {
@@ -113,14 +113,39 @@ public class InsightFaceClient {
                 vector[i] = (float) embNode.get(i).asDouble();
             }
             double detScore = face.path("det_score").asDouble(0.0);
-            out.add(new FaceEmbedding(vector, detScore));
+            float[] bbox = null;
+            JsonNode bboxNode = face.path("bbox");
+            if (bboxNode.isArray() && bboxNode.size() >= 4) {
+                bbox = new float[4];
+                for (int i = 0; i < 4; i++) {
+                    bbox[i] = (float) bboxNode.get(i).asDouble();
+                }
+            }
+            Double yaw = null;
+            Double pitch = null;
+            JsonNode pose = face.path("pose");
+            if (pose.isArray() && pose.size() >= 2) {
+                pitch = pose.get(0).asDouble();
+                yaw = pose.get(1).asDouble();
+                // A keypoint-based estimate only gives yaw; its pitch is a placeholder 0.
+                if ("kps".equals(face.path("pose_source").asText(""))) {
+                    pitch = null;
+                }
+            }
+            out.add(new DetectedFace(vector, detScore, bbox, optionalDouble(face, "face_size"),
+                    yaw, pitch, optionalDouble(face, "blur")));
         }
         return out;
     }
 
+    private static Double optionalDouble(JsonNode node, String field) {
+        JsonNode v = node.get(field);
+        return (v == null || v.isNull() || !v.isNumber()) ? null : v.asDouble();
+    }
+
     /** The single best (most confident) face in a JPEG, or empty when none. */
-    public Optional<FaceEmbedding> embedBestFace(byte[] jpeg) {
-        List<FaceEmbedding> faces = embed(jpeg);
+    public Optional<DetectedFace> embedBestFace(byte[] jpeg) {
+        List<DetectedFace> faces = embed(jpeg);
         return faces.isEmpty() ? Optional.empty() : Optional.of(faces.get(0));
     }
 
@@ -161,9 +186,5 @@ public class InsightFaceClient {
         }
         String trimmed = url.trim();
         return trimmed.endsWith("/") ? trimmed.substring(0, trimmed.length() - 1) : trimmed;
-    }
-
-    /** One detected face: its (already L2-normalized) embedding and the detector's confidence. */
-    public record FaceEmbedding(float[] embedding, double detScore) {
     }
 }

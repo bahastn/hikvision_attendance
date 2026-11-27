@@ -27,6 +27,7 @@ import java.util.concurrent.Executors;
 public class FaceLibrarySyncJobService {
 
     private final EnhancedCameraFaceLibraryService enhancedService;
+    private final FaceLibraryReconcileService reconcileService;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "face-lib-sync");
@@ -46,6 +47,8 @@ public class FaceLibrarySyncJobService {
         private volatile LocalDateTime finishedAt;
         private volatile State state = State.RUNNING;
         private volatile int imported, linked, updated, removed, skipped;
+        /** Reconcile jobs only (app -> camera direction). */
+        private volatile int resent, sent, cleared, photos, failed;
         private volatile String error;
         private volatile List<String> messages = List.of();
 
@@ -65,6 +68,11 @@ public class FaceLibrarySyncJobService {
         public int getUpdated() { return updated; }
         public int getRemoved() { return removed; }
         public int getSkipped() { return skipped; }
+        public int getResent() { return resent; }
+        public int getSent() { return sent; }
+        public int getCleared() { return cleared; }
+        public int getPhotos() { return photos; }
+        public int getFailed() { return failed; }
         public String getError() { return error; }
         public List<String> getMessages() { return messages; }
 
@@ -114,6 +122,23 @@ public class FaceLibrarySyncJobService {
                             + ", linked " + e.getValue().linked() + ", updated " + e.getValue().updated()
                             + ", removed " + e.getValue().removed() + ", skipped " + e.getValue().skipped())
                     .toList());
+        });
+        return job.getId();
+    }
+
+    /** Two-way reconcile of one camera (see {@link FaceLibraryReconcileService}). */
+    public String startReconcile(Long cameraId, FaceLibraryReconcileService.Options options) {
+        JobStatus job = newJob("camera:" + cameraId + ":reconcile");
+        submit(job, () -> {
+            FaceLibraryReconcileService.Result r = reconcileService.reconcile(cameraId, options);
+            job.linked += r.linked();
+            job.removed += r.removed();
+            job.resent += r.resent();
+            job.sent += r.sent();
+            job.cleared += r.cleared();
+            job.photos += r.photos();
+            job.failed += r.failed();
+            job.messages = capped(r.messages());
         });
         return job.getId();
     }

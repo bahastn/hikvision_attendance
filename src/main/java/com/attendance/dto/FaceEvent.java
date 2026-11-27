@@ -19,8 +19,16 @@ public class FaceEvent {
     private Double similarity;
     /** Event time as epoch millis from the camera. */
     private Long eventTimeMillis;
+    /** Camera-local face library PID of the matched person, when reported (FCSearch). */
+    private String pid;
     /** Raw picture URL path on the camera (to be downloaded). */
     private String pictureUrl;
+    /**
+     * Optional second picture of the same event (usually the wider scene / full-resolution snapshot).
+     * InsightFace uses it when {@link #pictureUrl} gives no usable face (too small, blurred, or the
+     * camera reported its library photo instead of the live capture).
+     */
+    private String backgroundPictureUrl;
     /** Serial number of the reporting device. */
     private String deviceId;
 }

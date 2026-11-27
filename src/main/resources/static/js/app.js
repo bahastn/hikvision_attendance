@@ -1029,6 +1029,9 @@ class AttendanceApp {
                     <button class="btn btn-sm btn-secondary btn-icon" onclick="app.openCameraTargetsModal(${emp.id}, this.dataset.name)" data-name="${this.displayName(emp)}" title="${this.translate('employees.manageCameras', 'Cameras')}">
                         <i class="fas fa-camera"></i>
                     </button>
+                    <button class="btn btn-sm btn-secondary btn-icon" onclick="app.openFaceSamplesModal(${emp.id}, this.dataset.name)" data-name="${this.displayName(emp)}" title="${this.translate('faceSamples.title', 'Face photos')}">
+                        <i class="fas fa-images"></i>
+                    </button>
                     <button class="btn btn-sm btn-secondary btn-icon" onclick="app.editEmployee(${emp.id})" title="${this.translate('editEmployee', 'Edit')}">
                         <i class="fas fa-edit"></i>
                     </button>
@@ -1239,6 +1242,238 @@ class AttendanceApp {
             .map(cb => cb.value);
     }
 
+    // ==================== INSIGHTFACE STATUS & CALIBRATION ====================
+    async loadInsightFaceStatus() {
+        const card = document.getElementById('insightface-card');
+        const el = document.getElementById('insightface-status');
+        if (!card || !el) return;
+        try {
+            const response = await this.ajaxGet('/api/insightface/status');
+            const s = response.success ? response.data : null;
+            if (!s || !s.enabled) {
+                card.style.display = 'none';
+                return;
+            }
+            card.style.display = '';
+            const c = s.config || {};
+            const yes = this.translate('calibration.on', 'on');
+            const no = this.translate('calibration.off', 'off');
+            el.innerHTML = `
+                <span class="badge ${s.available ? 'badge-present' : 'badge-absent'}">
+                    ${s.available ? this.translate('calibration.serviceUp', 'Service running') : this.translate('calibration.serviceDown', 'Service not reachable')}
+                </span>
+                <span>${this.translate('calibration.employees', 'Employees')}: <b>${s.gallerySize}</b></span>
+                <span>${this.translate('calibration.photos', 'Photos')}: <b>${s.sampleCount}</b></span>
+                <span>${this.translate('calibration.high', 'High')}: <b>${c.highThreshold}</b></span>
+                <span>${this.translate('calibration.low', 'Low')}: <b>${c.lowThreshold}</b></span>
+                <span>${this.translate('calibration.margin', 'Margin')}: <b>${c.minMargin}</b></span>
+                <span>${this.translate('calibration.learnReviews', 'Learn from reviews')}: <b>${c.learnFromReviews ? yes : no}</b></span>
+                <span>${this.translate('calibration.autoLearn', 'Auto-learn')}: <b>${c.autoLearn ? yes : no}</b></span>
+                <span>${this.translate('calibration.verify', 'Check camera matches')}: <b>${c.verifyCameraMatches ? yes : no}</b></span>`;
+        } catch (e) {
+            card.style.display = 'none';
+        }
+    }
+
+    async runCalibration() {
+        const out = document.getElementById('calibration-result');
+        if (!out) return;
+        out.innerHTML = `<div class="camera-check-empty">${this.translate('loading', 'Loading...')}</div>`;
+        try {
+            const response = await this.ajaxGet('/api/insightface/calibration');
+            if (!response.success) throw new Error(response.message || 'Failed');
+            this.renderCalibration(response.data);
+        } catch (e) {
+            out.innerHTML = `<div class="alert alert-warning">${(e.message || '').replace(/[<>&]/g, '')}</div>`;
+        }
+    }
+
+    renderCalibration(r) {
+        const out = document.getElementById('calibration-result');
+        const pct = (v) => (v == null ? '-' : (Number(v) * 100).toFixed(Number(v) < 0.01 && Number(v) > 0 ? 2 : 1) + '%');
+        const num = (v) => (v == null ? '-' : Number(v).toFixed(2));
+        const maxBin = Math.max(1, ...r.histogram.map(b => Math.max(b.genuine, b.impostor)));
+        const confidenceClass = r.confidence === 'HIGH' ? 'badge-present' : (r.confidence === 'MEDIUM' ? 'badge-late' : 'badge-absent');
+        out.innerHTML = `
+            <div class="calibration-summary">
+                <div class="calibration-box">
+                    <div class="calibration-label">${this.translate('calibration.recHigh', 'Recommended high threshold')}</div>
+                    <div class="calibration-value">${num(r.recommendedHigh)}</div>
+                    <div class="calibration-sub">${this.translate('calibration.current', 'current')} ${num(r.currentHigh)}</div>
+                </div>
+                <div class="calibration-box">
+                    <div class="calibration-label">${this.translate('calibration.recLow', 'Recommended low threshold')}</div>
+                    <div class="calibration-value">${num(r.recommendedLow)}</div>
+                    <div class="calibration-sub">${this.translate('calibration.current', 'current')} ${num(r.currentLow)}</div>
+                </div>
+                <div class="calibration-box">
+                    <div class="calibration-label">${this.translate('calibration.currentFar', 'Wrong person accepted at current high')}</div>
+                    <div class="calibration-value">${pct(r.currentFar)}</div>
+                    <div class="calibration-sub">${this.translate('calibration.currentFrr', 'Right person not auto-recorded')} ${pct(r.currentFrr)}</div>
+                </div>
+                <div class="calibration-box">
+                    <div class="calibration-label">${this.translate('calibration.confidence', 'Confidence')}</div>
+                    <div class="calibration-value"><span class="badge ${confidenceClass}">${r.confidence}</span></div>
+                    <div class="calibration-sub">${r.genuine.count} ${this.translate('calibration.same', 'same-person')} / ${r.impostor.count} ${this.translate('calibration.different', 'different-person')}
+                        &bull; ${r.reviewConfirmed + r.reviewRejected} ${this.translate('calibration.reviews', 'reviews')}</div>
+                </div>
+            </div>
+            ${(r.notes || []).map(n => `<div class="alert alert-info calibration-note"><i class="fas fa-lightbulb"></i> ${String(n).replace(/[<>&]/g, '')}</div>`).join('')}
+            <div class="calibration-legend">
+                <span><i class="calibration-swatch genuine"></i> ${this.translate('calibration.same', 'same-person')}</span>
+                <span><i class="calibration-swatch impostor"></i> ${this.translate('calibration.different', 'different-person')}</span>
+            </div>
+            <div class="calibration-histogram">
+                ${r.histogram.map(b => `
+                    <div class="calibration-bin" title="${num(b.from)}–${num(b.to)}: ${b.genuine} / ${b.impostor}">
+                        <div class="calibration-bars">
+                            <div class="calibration-bar impostor" style="height:${(b.impostor / maxBin) * 100}%"></div>
+                            <div class="calibration-bar genuine" style="height:${(b.genuine / maxBin) * 100}%"></div>
+                        </div>
+                        <div class="calibration-tick">${(b.from * 100) % 10 === 0 ? num(b.from) : ''}</div>
+                    </div>`).join('')}
+            </div>
+            <div class="table-container" style="margin-top:15px;">
+                <table class="table">
+                    <thead><tr>
+                        <th>${this.translate('calibration.threshold', 'Threshold')}</th>
+                        <th>${this.translate('calibration.far', 'Wrong person accepted')}</th>
+                        <th>${this.translate('calibration.frr', 'Right person missed')}</th>
+                        <th>${this.translate('calibration.rejectedAbove', 'Rejected reviews above')}</th>
+                        <th>${this.translate('calibration.confirmedAbove', 'Confirmed reviews above')}</th>
+                    </tr></thead>
+                    <tbody>
+                        ${r.table.map(row => `<tr class="${Math.abs(row.threshold - r.currentHigh) < 0.001 ? 'calibration-current' : ''}">
+                            <td>${num(row.threshold)}</td><td>${pct(row.far)}</td><td>${pct(row.frr)}</td>
+                            <td>${row.reviewsRejectedAbove}</td><td>${row.reviewsConfirmedAbove}</td></tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+    }
+
+    // ==================== EMPLOYEE FACE PHOTOS (InsightFace samples) ====================
+    openFaceSamplesModal(employeeId, employeeName) {
+        this.faceSamplesEmployeeId = employeeId;
+        const nameEl = document.getElementById('face-samples-employee');
+        if (nameEl) nameEl.textContent = employeeName || '';
+        const input = document.getElementById('face-samples-input');
+        if (input) input.value = '';
+        const force = document.getElementById('face-samples-force');
+        if (force) force.checked = false;
+        const results = document.getElementById('face-samples-results');
+        if (results) results.innerHTML = '';
+        document.getElementById('face-samples-modal')?.classList.add('active');
+        this.loadFaceSamples();
+    }
+
+    faceSampleSourceLabel(source) {
+        const labels = {
+            ENROLLED: this.translate('faceSamples.source.ENROLLED', 'Camera photo'),
+            UPLOADED: this.translate('faceSamples.source.UPLOADED', 'Uploaded'),
+            REVIEW_CONFIRMED: this.translate('faceSamples.source.REVIEW_CONFIRMED', 'Confirmed capture'),
+            AUTO_LEARNED: this.translate('faceSamples.source.AUTO_LEARNED', 'Learned capture')
+        };
+        return labels[source] || source || '-';
+    }
+
+    async loadFaceSamples() {
+        const grid = document.getElementById('face-samples-grid');
+        const id = this.faceSamplesEmployeeId;
+        if (!grid || !id) return;
+        grid.innerHTML = `<div class="camera-check-empty">${this.translate('loading', 'Loading...')}</div>`;
+        try {
+            const response = await this.ajaxGet(`/api/employees/${id}/face-samples`);
+            if (!response.success) throw new Error(response.message || 'Failed');
+            const data = response.data || {};
+            const enabled = !!data.enabled;
+            const disabledEl = document.getElementById('face-samples-disabled');
+            if (disabledEl) disabledEl.style.display = enabled ? 'none' : '';
+            const uploadEl = document.getElementById('face-samples-upload');
+            if (uploadEl) uploadEl.style.display = enabled ? '' : 'none';
+            const samples = data.samples || [];
+            this._faceSamples = samples;
+            grid.innerHTML = samples.length > 0
+                ? samples.map((s, i) => `
+                    <div class="face-sample-card ${s.primary ? 'face-sample-primary' : ''}">
+                        <img src="${s.imageUrl}" alt="" loading="lazy">
+                        <div class="face-sample-body">
+                            <span class="badge ${s.primary ? 'badge-present' : (s.source === 'UPLOADED' ? 'badge-leave' : 'badge-late')}">${this.faceSampleSourceLabel(s.source)}</span>
+                            <div class="face-sample-meta">
+                                ${s.qualityScore != null ? `${this.translate('faceSamples.quality', 'Quality')} ${Math.round(Number(s.qualityScore) * 100)}%` : ''}
+                                ${s.matchScore != null ? ` &bull; ${this.translate('faceSamples.match', 'Match')} ${Math.round(Number(s.matchScore) * 100)}%` : ''}
+                            </div>
+                            <div class="face-sample-meta">${s.createdAt ? this.formatDate(s.createdAt) : ''}</div>
+                        </div>
+                        ${s.primary ? '' : `<button class="btn btn-sm btn-secondary face-sample-delete" onclick="app.deleteFaceSample(${i})" title="${this.translate('faceSamples.delete', 'Delete')}"><i class="fas fa-trash"></i></button>`}
+                    </div>
+                `).join('')
+                : `<div class="camera-check-empty">${this.translate('faceSamples.none', 'No face photos yet')}</div>`;
+        } catch (e) {
+            grid.innerHTML = `<div class="camera-check-empty">${e.message || this.translate('operationFailed', 'Operation failed')}</div>`;
+        }
+    }
+
+    faceSampleIssueText(result) {
+        const key = `faceSamples.issue.${result.code}`;
+        return this.t[key] ? `${this.t[key]} (${result.message})` : (result.message || result.code);
+    }
+
+    /** Upload the chosen photos one per request so each gets its own accept/reject answer. */
+    async uploadFaceSamples() {
+        const id = this.faceSamplesEmployeeId;
+        const input = document.getElementById('face-samples-input');
+        const files = input ? Array.from(input.files || []) : [];
+        if (!id || files.length === 0) {
+            this.showToast(this.translate('faceSamples.chooseFiles', 'Choose one or more photos first'), 'error');
+            return;
+        }
+        const force = document.getElementById('face-samples-force')?.checked;
+        const button = document.getElementById('face-samples-upload-btn');
+        const resultsEl = document.getElementById('face-samples-results');
+        if (button) button.disabled = true;
+        const lines = [];
+        let added = 0;
+        for (const file of files) {
+            const formData = new FormData();
+            formData.append('photos', file);
+            if (force) formData.append('force', 'true');
+            let result;
+            try {
+                const response = await this.ajaxUpload(`/api/employees/${id}/face-samples`, formData);
+                result = (response.data && response.data[0]) || { accepted: false, code: 'ERROR', message: response.message };
+            } catch (e) {
+                result = { accepted: false, code: 'ERROR', message: e.message };
+            }
+            if (result.accepted) added++;
+            const safeName = (file.name || '').replace(/[<>&"]/g, '');
+            const text = result.accepted
+                ? this.translate('faceSamples.added', 'Added')
+                : this.faceSampleIssueText(result).replace(/[<>&]/g, '');
+            lines.push(`<div class="face-samples-result ${result.accepted ? 'ok' : 'fail'}">
+                <i class="fas ${result.accepted ? 'fa-check' : 'fa-xmark'}"></i> <b>${safeName}</b>: ${text}</div>`);
+            if (resultsEl) resultsEl.innerHTML = lines.join('');
+        }
+        if (button) button.disabled = false;
+        if (input) input.value = '';
+        this.showToast(`${added} / ${files.length} ${this.translate('faceSamples.addedCount', 'photo(s) added')}`,
+            added > 0 ? 'success' : 'error');
+        this.loadFaceSamples();
+    }
+
+    async deleteFaceSample(index) {
+        const sample = (this._faceSamples || [])[index];
+        const id = this.faceSamplesEmployeeId;
+        if (!sample || !id) return;
+        if (!confirm(this.translate('faceSamples.deleteConfirm', 'Delete this photo?'))) return;
+        try {
+            const response = await this.ajaxDelete(`/api/employees/${id}/face-samples/${sample.id}`);
+            this.showToast(response.message || '', response.success ? 'success' : 'error');
+            if (response.success) this.loadFaceSamples();
+        } catch (e) {
+            this.showToast(this.translate('operationFailed', 'Operation failed'), 'error');
+        }
+    }
+
     // ==================== EMPLOYEE CAMERA TARGETS ====================
     openCameraTargetsModal(employeeId, employeeName) {
         this.cameraTargetsEmployeeId = employeeId;
@@ -1403,6 +1638,8 @@ class AttendanceApp {
         this.loadFaceLibraryCameras();
         this.loadFaceCaptures();
         this.loadPendingReviews();
+        this.loadInsightFaceStatus();
+        document.getElementById('btn-run-calibration')?.addEventListener('click', () => this.runCalibration());
 
         document.getElementById('btn-refresh-captures')?.addEventListener('click', () => {
             this.loadFaceCaptures();
@@ -1450,7 +1687,9 @@ class AttendanceApp {
                 <img class="capture-photo" src="${c.imageUrl}" alt="capture" loading="lazy">
                 <div class="capture-body">
                     <span class="badge badge-late" style="align-self:flex-start;">
-                        ${this.translate('faceLibrary.insightFace', 'InsightFace')}${c.candidateScore != null ? ' &bull; ' + Math.round(Number(c.candidateScore) * 100) + '%' : ''}
+                        ${c.recognitionSource === 'CAMERA_VERIFY'
+                            ? this.translate('faceLibrary.cameraCheck', 'Camera match check')
+                            : this.translate('faceLibrary.insightFace', 'InsightFace')}${c.candidateScore != null ? ' &bull; ' + Math.round(Number(c.candidateScore) * 100) + '%' : ''}
                     </span>
                     <div class="capture-name">${c.candidateEmployeeName || this.translate('faceLibraryUnknown', 'Unknown')}</div>
                     <div class="capture-meta">
@@ -1460,11 +1699,17 @@ class AttendanceApp {
                         <i class="fas fa-video"></i> ${c.cameraName || '-'}
                     </div>
                     <div class="capture-meta"><i class="far fa-clock"></i> ${this.formatTime(c.capturedAt)}</div>
+                    ${c.matchNote ? `<div class="capture-meta capture-note"><i class="fas fa-circle-info"></i> ${String(c.matchNote).replace(/[<>&]/g, '')}</div>` : ''}
                 </div>
                 <div class="capture-actions">
                     <button class="btn btn-primary" onclick="app.confirmPendingReview(${c.id})">
                         <i class="fas fa-check"></i> ${this.translate('faceLibrary.confirm', 'Confirm')}
                     </button>
+                    ${c.alternativeEmployeeId ? `
+                    <button class="btn btn-secondary" onclick="app.confirmPendingReview(${c.id}, this.dataset.emp)" data-emp="${String(c.alternativeEmployeeId).replace(/"/g, '')}"
+                            title="${this.translate('faceLibrary.confirmAlternative', 'Record attendance for this person instead')}">
+                        <i class="fas fa-user-check"></i> ${String(c.alternativeEmployeeName || c.alternativeEmployeeId).replace(/[<>&]/g, '')}${c.alternativeScore != null ? ' (' + Math.round(Number(c.alternativeScore) * 100) + '%)' : ''}
+                    </button>` : ''}
                     <button class="btn btn-secondary" onclick="app.rejectPendingReview(${c.id})">
                         <i class="fas fa-xmark"></i> ${this.translate('faceLibrary.reject', 'Reject')}
                     </button>
@@ -1473,9 +1718,10 @@ class AttendanceApp {
         `).join('');
     }
 
-    async confirmPendingReview(captureId) {
+    async confirmPendingReview(captureId, employeeId = null) {
         try {
-            const response = await this.ajaxPost(`/api/face-captures/${captureId}/confirm`, {});
+            const query = employeeId ? `?employeeId=${encodeURIComponent(employeeId)}` : '';
+            const response = await this.ajaxPost(`/api/face-captures/${captureId}/confirm${query}`, {});
             if (response.success) {
                 this.showToast(response.message || this.translate('faceLibrary.confirmed', 'Attendance recorded'), 'success');
                 this.loadPendingReviews();

@@ -17,4 +17,11 @@ public final class FaceEmbeddingEvents {
     /** An employee's face was removed; delete its embedding. */
     public record FaceRemoved(Long employeeDbId) {
     }
+
+    /**
+     * A reviewer confirmed a pending capture as this employee; the capture may become a new
+     * reference sample (see {@code FaceLearningService}).
+     */
+    public record CaptureConfirmed(Long captureId, Long employeeDbId, String imageUrl, String username) {
+    }
 }

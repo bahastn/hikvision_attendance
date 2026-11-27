@@ -157,14 +157,17 @@ public class EnhancedCameraFaceLibraryService {
             }
 
             String cert = person.certificateNumber;
-            if (cert == null || cert.isBlank()) {
+            // A person without a certificate number can still be linked when the user mapped the
+            // PID to an employee ID.
+            String mapped = pidToEmployeeIdMap != null ? pidToEmployeeIdMap.get(person.pid) : null;
+            if ((cert == null || cert.isBlank()) && (mapped == null || mapped.isBlank())) {
                 skipped++;
-                messages.add("Skipped PID " + person.pid + " - no certificate number");
+                messages.add("Skipped PID " + person.pid + " - no certificate number (map it to an employee ID to link)");
                 continue;
             }
 
             // Check for custom employee ID mapping
-            String targetEmployeeId = pidToEmployeeIdMap.getOrDefault(person.pid, cert);
+            String targetEmployeeId = mapped != null && !mapped.isBlank() ? mapped.trim() : cert;
             Employee employee = byEmployeeId.get(targetEmployeeId);
 
             try {
@@ -179,8 +182,9 @@ public class EnhancedCameraFaceLibraryService {
                     removed++;
                     messages.add("Removed " + person.name + " from camera (deactivated)");
                 } else {
-                    // Link/update existing
-                    boolean changed = linkPerson(camera, person, employee, performedBy, batchId);
+                    // Link/update existing (the user selected this person, so a name difference
+                    // is applied from the camera)
+                    boolean changed = linkPerson(camera, person, employee, performedBy, batchId, true);
                     if (changed) {
                         updated++;
                         messages.add("Updated " + person.name);
@@ -197,6 +201,7 @@ public class EnhancedCameraFaceLibraryService {
         }
 
         camera.setLastSync(LocalDateTime.now());
+        camera.setLastLibrarySync(LocalDateTime.now());
         cameraRepository.save(camera);
 
         return new SyncResult(imported, linked, removed, skipped, updated, messages, batchId);
@@ -245,7 +250,9 @@ public class EnhancedCameraFaceLibraryService {
                     removed++;
                     messages.add("Removed " + person.name + " (deactivated)");
                 } else {
-                    boolean changed = linkPerson(camera, person, employee, performedBy, batchId);
+                    // Automatic/full sync never overwrites the app's name; differences are listed
+                    // as conflicts in the preview instead.
+                    boolean changed = linkPerson(camera, person, employee, performedBy, batchId, false);
                     if (changed) {
                         updated++;
                         messages.add("Updated " + person.name);
@@ -260,6 +267,7 @@ public class EnhancedCameraFaceLibraryService {
         }
 
         camera.setLastSync(LocalDateTime.now());
+        camera.setLastLibrarySync(LocalDateTime.now());
         cameraRepository.save(camera);
 
         log.info("Face library sync on {}: {} imported, {} linked, {} updated, {} removed, {} skipped",
@@ -394,21 +402,25 @@ public class EnhancedCameraFaceLibraryService {
     }
 
     private boolean linkPerson(CameraConfig camera, HikvisionIsapiClient.FaceLibPerson person,
-                                Employee employee, String performedBy, String batchId) {
+                                Employee employee, String performedBy, String batchId, boolean updateName) {
         boolean changed = false;
         StringBuilder changes = new StringBuilder();
         
-        if (!Objects.equals(employee.getFullName(), person.name)) {
+        if (updateName && person.name != null && !person.name.isBlank()
+                && !Objects.equals(employee.getFullName(), person.name)) {
             String oldName = employee.getFullName();
             employee.setFullName(person.name);
             changed = true;
             changes.append("name: '").append(oldName).append("' -> '").append(person.name).append("'; ");
         }
         
-        if (employee.getFaceTemplateId() == null || !employee.getFaceTemplateId().equals(person.pid)) {
+        // PIDs are per camera and kept per camera in employee_camera_targets (below). Only fill the
+        // legacy single faceTemplateId when it is empty, instead of flipping it between cameras on
+        // every sync.
+        if (employee.getFaceTemplateId() == null || employee.getFaceTemplateId().isBlank()) {
             employee.setFaceTemplateId(person.pid);
             changed = true;
-            changes.append("pid updated; ");
+            changes.append("pid set; ");
         }
         
         employee.setSyncStatus(SyncStatus.SYNCED);

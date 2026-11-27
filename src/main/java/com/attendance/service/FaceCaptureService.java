@@ -8,8 +8,14 @@ import com.attendance.entity.Employee;
 import com.attendance.entity.FaceCapture;
 import com.attendance.repository.EmployeeRepository;
 import com.attendance.repository.FaceCaptureRepository;
+import com.attendance.repository.FaceReviewOutcomeRepository;
+import com.attendance.entity.FaceReviewOutcome;
 import lombok.RequiredArgsConstructor;
+import com.attendance.service.insightface.FaceEmbeddingEvents;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -42,6 +48,8 @@ public class FaceCaptureService {
     private final FaceEnrollmentService faceEnrollmentService;
     private final AttendanceService attendanceService;
     private final EmployeeRepository employeeRepository;
+    private final ApplicationEventPublisher eventPublisher;
+    private final FaceReviewOutcomeRepository reviewOutcomeRepository;
 
     @Value("${attendance.face-storage-dir:faces}")
     private String faceStorageDir;
@@ -88,9 +96,29 @@ public class FaceCaptureService {
     @Transactional
     public void recordUncertainMatch(CameraConfig camera, FaceEvent event, byte[] picture,
                                      Employee candidate, double score) {
+        recordUncertainMatch(camera, event, picture, candidate, score, null, "INSIGHTFACE");
+    }
+
+    /**
+     * Queue a capture for review with a note for the reviewer. {@code source} is the recognizer
+     * whose decision is being reviewed ({@code INSIGHTFACE}, or {@code CAMERA_VERIFY} when
+     * InsightFace could not confirm a camera match).
+     */
+    @Transactional
+    public void recordUncertainMatch(CameraConfig camera, FaceEvent event, byte[] picture,
+                                     Employee candidate, double score, String note, String source) {
+        recordUncertainMatch(camera, event, picture, candidate, score, note, source, null, null);
+    }
+
+    /** As above, with an alternative employee the reviewer can choose instead of the candidate. */
+    @Transactional
+    public void recordUncertainMatch(CameraConfig camera, FaceEvent event, byte[] picture,
+                                     Employee candidate, double score, String note, String source,
+                                     Employee alternative, Double alternativeScore) {
         if (picture == null || picture.length == 0 || candidate == null) {
             return;
         }
+        boolean hasAlternative = alternative != null && !alternative.getEmployeeId().equals(candidate.getEmployeeId());
         try {
             String imageUrl = writeCaptureFile(camera.getId(), picture);
             LocalDateTime capturedAt = capturedAtOf(event);
@@ -100,10 +128,14 @@ public class FaceCaptureService {
                     .imageUrl(imageUrl)
                     .personName(event.getPersonName())
                     .similarity(event.getSimilarity())
-                    .recognitionSource("INSIGHTFACE")
+                    .recognitionSource(source != null ? source : "INSIGHTFACE")
                     .candidateEmployeeId(candidate.getEmployeeId())
                     .candidateEmployeeName(candidate.getFullName())
                     .candidateScore(score)
+                    .matchNote(note != null && note.length() > 500 ? note.substring(0, 500) : note)
+                    .alternativeEmployeeId(hasAlternative ? alternative.getEmployeeId() : null)
+                    .alternativeEmployeeName(hasAlternative ? alternative.getFullName() : null)
+                    .alternativeScore(hasAlternative ? alternativeScore : null)
                     .reviewStatus(FaceCapture.ReviewStatus.PENDING_REVIEW)
                     .capturedAt(capturedAt)
                     .expiresAt(capturedAt.plusHours(retentionHours))
@@ -157,19 +189,35 @@ public class FaceCaptureService {
 
         String direction = attendanceService.hasOpenCheckInToday(employee.getId()) ? "OUT" : "IN";
         Double scorePercent = capture.getCandidateScore() != null ? capture.getCandidateScore() * 100.0 : null;
+        // Record the attendance at the moment the face was captured, not when the reviewer clicked.
+        Long capturedAtMillis = capture.getCapturedAt() != null
+                ? capture.getCapturedAt().atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                : null;
+        // A camera match that InsightFace could not confirm stays a camera recognition once confirmed.
+        String source = "CAMERA_VERIFY".equals(capture.getRecognitionSource()) ? "CAMERA" : "INSIGHTFACE";
         attendanceService.processDetection(
                 employee.getEmployeeId(),
                 capture.getCameraName() != null ? capture.getCameraName() : "INSIGHTFACE",
                 scorePercent,
                 direction,
                 capture.getImageUrl(),
-                null,
-                "INSIGHTFACE");
+                capturedAtMillis,
+                source);
 
         capture.setReviewStatus(FaceCapture.ReviewStatus.CONFIRMED);
         capture.setMatchedEmployeeId(employee.getEmployeeId());
         capture.setMatchedEmployeeName(employee.getFullName());
         captureRepository.save(capture);
+        logReviewOutcome(capture, employee.getEmployeeId().equals(capture.getCandidateEmployeeId()));
+
+        // Let InsightFace learn from the confirmed capture (after commit, async; no-op when off).
+        eventPublisher.publishEvent(new FaceEmbeddingEvents.CaptureConfirmed(
+                capture.getId(), employee.getId(), capture.getImageUrl(), currentUsername()));
+    }
+
+    private static String currentUsername() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null && auth.isAuthenticated() ? auth.getName() : null;
     }
 
     /** Reject a pending review: no attendance is recorded; the capture is marked REJECTED. */
@@ -179,6 +227,21 @@ public class FaceCaptureService {
                 .orElseThrow(() -> new RuntimeException("Face capture not found"));
         capture.setReviewStatus(FaceCapture.ReviewStatus.REJECTED);
         captureRepository.save(capture);
+        logReviewOutcome(capture, false);
+    }
+
+    /** Keep an image-free record of the decision for threshold calibration. */
+    private void logReviewOutcome(FaceCapture capture, boolean confirmedCandidate) {
+        if (capture.getCandidateScore() == null) {
+            return;
+        }
+        reviewOutcomeRepository.save(FaceReviewOutcome.builder()
+                .captureId(capture.getId())
+                .source(capture.getRecognitionSource())
+                .candidateEmployeeId(capture.getCandidateEmployeeId())
+                .candidateScore(capture.getCandidateScore())
+                .confirmedCandidate(confirmedCandidate)
+                .build());
     }
 
     /** Captures still within the retention window, newest first. cameraId == null means all cameras. */
@@ -267,6 +330,10 @@ public class FaceCaptureService {
                 .candidateEmployeeId(c.getCandidateEmployeeId())
                 .candidateEmployeeName(c.getCandidateEmployeeName())
                 .candidateScore(c.getCandidateScore())
+                .matchNote(c.getMatchNote())
+                .alternativeEmployeeId(c.getAlternativeEmployeeId())
+                .alternativeEmployeeName(c.getAlternativeEmployeeName())
+                .alternativeScore(c.getAlternativeScore())
                 .reviewStatus(c.getReviewStatus() != null ? c.getReviewStatus().name() : null)
                 .build();
     }

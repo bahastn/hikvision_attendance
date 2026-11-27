@@ -18,11 +18,18 @@ POST /embed               -> detect faces in a JPEG and return a normalized embe
 Response of /embed:
     {
       "model": "buffalo_l",
+      "image_size": [width, height],
       "faces": [
         {"embedding": [512 floats, L2-normalized], "det_score": 0.93,
-         "bbox": [x1, y1, x2, y2]}
+         "bbox": [x1, y1, x2, y2],
+         "face_size": 148.0,          # shorter side of the face box, in pixels
+         "pose": [pitch, yaw, roll],  # degrees; yaw 0 = frontal (null if unknown)
+         "pose_source": "3d68",       # "3d68" (landmark model) or "kps" (rough estimate)
+         "blur": 6.3}                 # sharpness of the face (see _blur_score); higher =
+                                      # sharper. Sharp ~3-11, slightly soft ~1, blurred <0.5
       ]
     }
+The quality fields are measurements only; the Spring Boot app decides what is acceptable.
 "faces" is ordered by det_score descending, so faces[0] is the most confident face.
 
 Run it
@@ -37,6 +44,7 @@ See README.md.
 import base64
 import io
 import os
+from typing import Optional
 
 import numpy as np
 from fastapi import FastAPI, Request, HTTPException
@@ -51,7 +59,7 @@ CTX_ID = int(os.environ.get("INSIGHTFACE_CTX_ID", "-1"))
 # Detection size; larger = more accurate but slower.
 DET_SIZE = int(os.environ.get("INSIGHTFACE_DET_SIZE", "640"))
 
-app = FastAPI(title="InsightFace Attendance Sidecar", version="1.0.0")
+app = FastAPI(title="InsightFace Attendance Sidecar", version="1.1.0")
 
 _model = None
 
@@ -114,6 +122,52 @@ async def _extract_bytes(request: Request) -> bytes:
     return body
 
 
+FACE_NORM_SIZE = 112
+
+
+def _blur_score(img: np.ndarray, bbox) -> Optional[float]:
+    """Sharpness of the face crop: variance of a 4-neighbour Laplacian on the grayscale face
+    resized to 112x112, divided by the variance of the face itself (x100).
+
+    Resizing makes the value comparable between small and large faces; dividing by the face's own
+    contrast makes it independent of brightness and contrast, so a dim but sharp photo is not
+    mistaken for a blurred one. Typical values: sharp 3-11, slightly soft ~1, blurred < 0.5."""
+    if bbox is None:
+        return None
+    h, w = img.shape[:2]
+    x1, y1, x2, y2 = [int(round(v)) for v in bbox]
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(w, x2), min(h, y2)
+    if x2 - x1 < 4 or y2 - y1 < 4:
+        return None
+    crop = img[y1:y2, x1:x2, ::-1]  # back to RGB for PIL
+    gray = Image.fromarray(np.ascontiguousarray(crop)).convert("L").resize(
+        (FACE_NORM_SIZE, FACE_NORM_SIZE), Image.BILINEAR)
+    g = np.asarray(gray, dtype=np.float32)
+    lap = (-4.0 * g[1:-1, 1:-1] + g[:-2, 1:-1] + g[2:, 1:-1] + g[1:-1, :-2] + g[1:-1, 2:])
+    return float(lap.var() / max(float(g.var()), 1.0) * 100.0)
+
+
+def _pose(face):
+    """(pitch, yaw, roll) in degrees and where it came from. Uses the 3D-68 landmark model's
+    pose when the model pack provides it (buffalo_l does); otherwise a rough yaw estimate from
+    the 5 detection keypoints (eyes + nose), with pitch/roll unknown."""
+    pose = face.get("pose") if hasattr(face, "get") else None
+    if pose is not None:
+        p = [float(x) for x in np.asarray(pose).tolist()[:3]]
+        return p, "3d68"
+    kps = getattr(face, "kps", None)
+    if kps is None or len(kps) < 3:
+        return None, None
+    left_eye, right_eye, nose = kps[0], kps[1], kps[2]
+    span = float(right_eye[0] - left_eye[0])
+    if abs(span) < 1e-3:
+        return None, None
+    ratio = (float(nose[0]) - float(left_eye[0])) / span  # ~0.5 when frontal
+    yaw = max(-90.0, min(90.0, (ratio - 0.5) * 120.0))
+    return [0.0, yaw, 0.0], "kps"
+
+
 @app.post("/embed")
 async def embed(request: Request):
     raw = await _extract_bytes(request)
@@ -129,13 +183,20 @@ async def embed(request: Request):
     for f in faces:
         emb = np.asarray(f.normed_embedding, dtype=np.float32)  # already L2-normalized
         bbox = [float(x) for x in f.bbox.tolist()] if f.bbox is not None else None
+        face_size = min(bbox[2] - bbox[0], bbox[3] - bbox[1]) if bbox else None
+        pose, pose_source = _pose(f)
         results.append(
             {
                 "embedding": emb.tolist(),
                 "det_score": float(f.det_score),
                 "bbox": bbox,
+                "face_size": float(face_size) if face_size is not None else None,
+                "pose": pose,
+                "pose_source": pose_source,
+                "blur": _blur_score(img, bbox),
             }
         )
 
     results.sort(key=lambda r: r["det_score"], reverse=True)
-    return {"model": MODEL_NAME, "faces": results}
+    height, width = img.shape[:2]
+    return {"model": MODEL_NAME, "image_size": [int(width), int(height)], "faces": results}

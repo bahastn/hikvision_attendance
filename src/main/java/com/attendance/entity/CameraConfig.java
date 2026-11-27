@@ -59,6 +59,14 @@ public class CameraConfig {
     private LocalDateTime lastSync;
 
     /**
+     * When this camera's face library was last synced with the app. Separate from
+     * {@link #lastSync}, which is refreshed on every event (connection health), so the periodic
+     * library sync can tell when it last really ran.
+     */
+    @Column(name = "last_library_sync")
+    private LocalDateTime lastLibrarySync;
+
+    /**
      * High-water mark for raw face-match ingestion: the snapTime of the most recent match
      * already recorded from this camera's FCSearch history. Persisted so a restart or downtime
      * resumes from where it left off instead of replaying from "now" and losing the gap.

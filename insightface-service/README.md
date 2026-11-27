@@ -1,26 +1,32 @@
 # InsightFace sidecar
 
 A small, **stateless** Python face-embedding service used by the Hikvision Attendance
-app as a **secondary (fallback) face-recognition layer**.
+app as a **second face-recognition layer** next to the cameras' own recognition.
 
-When the Hikvision camera cannot identify a face, the Spring Boot app sends the captured
-photo here, gets back a face **embedding** (a 512-number vector), and compares it against
-the embeddings of enrolled employees. All the matching logic and confidence thresholds
-live in the Java app — this service only turns an image into an embedding.
+The Spring Boot app sends captured photos here and gets back, per face, an **embedding**
+(a 512-number vector) plus quality measurements (face size, head pose, sharpness). The Java
+app keeps several reference photos per employee and does all matching, quality rules and
+thresholds — this service only turns an image into embeddings and measurements.
+
+It is used to:
+- recognize faces the camera could not identify (fallback);
+- double-check the camera's own matches (second opinion; disagreements go to review);
+- check and embed employees' reference photos (Employees → Face photos);
+- learn from captures a reviewer confirmed.
 
 ## How it fits in
 
 ```
-Camera can't recognize a face
-        │  (captured JPEG)
-        ▼
-Spring Boot  ──HTTP POST /embed──►  this service  ──►  {embedding[512], det_score}
+Camera face event (captured JPEG)
         │
         ▼
-Java compares the embedding to enrolled employees (cosine similarity) and decides:
-   High confidence  → record attendance
-   Uncertain        → human review queue
-   No match         → unknown-capture library (unchanged)
+Spring Boot  ──HTTP POST /embed──►  this service  ──►  {embedding[512], det_score, pose, blur, ...}
+        │
+        ▼
+Java checks the face quality, compares it with every employee's photos and decides:
+   Camera matched someone:   InsightFace agrees → record; clearly someone else → review
+   Camera matched no one:    high & clear lead → record; uncertain/close call → review;
+                             no match → unknown-capture library
 ```
 
 ## Requirements
@@ -90,12 +96,24 @@ Response (faces ordered by `det_score`, most confident first):
 ```json
 {
   "model": "buffalo_l",
+  "image_size": [1280, 886],
   "faces": [
-    { "embedding": [/* 512 L2-normalized floats */], "det_score": 0.93, "bbox": [x1,y1,x2,y2] }
+    { "embedding": [/* 512 L2-normalized floats */], "det_score": 0.93, "bbox": [x1,y1,x2,y2],
+      "face_size": 148.0, "pose": [pitch, yaw, roll], "pose_source": "3d68", "blur": 6.3 }
   ]
 }
 ```
 An empty `faces` array means no face was detected.
+
+- `face_size`: shorter side of the face box, in pixels.
+- `pose`: head angles in degrees (yaw 0 = looking straight at the camera). `pose_source` is
+  `3d68` when the model pack's 3D landmark model is available (buffalo_l has it), otherwise
+  `kps` (a rough yaw estimate from the eyes and nose; pitch/roll unknown).
+- `blur`: sharpness of the face, independent of brightness/contrast. Sharp faces are about
+  3–11, slightly soft about 1, clearly blurred below 0.5.
+
+The quality fields were added in v1.1 and are additive: the Java app also works with a v1.0
+sidecar (it then skips the size/pose/sharpness checks).
 
 ## Quick test
 

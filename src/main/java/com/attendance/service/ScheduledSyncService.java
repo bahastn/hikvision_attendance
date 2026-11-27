@@ -84,7 +84,9 @@ public class ScheduledSyncService {
         List<CameraConfig> cameras = cameraRepository.findByIsActiveTrue();
         
         for (CameraConfig camera : cameras) {
-            if (camera.getLastSync() == null || camera.getLastSync().isBefore(threshold)) {
+            // lastLibrarySync, not lastSync: lastSync is refreshed by every face event, so on a busy
+            // camera it never looked "old" and the quick sync never ran.
+            if (camera.getLastLibrarySync() == null || camera.getLastLibrarySync().isBefore(threshold)) {
                 try {
                     log.info("Quick syncing camera: {}", camera.getCameraName());
                     syncService.syncCameraFaceLibrary(camera.getId(), "scheduled-quick");

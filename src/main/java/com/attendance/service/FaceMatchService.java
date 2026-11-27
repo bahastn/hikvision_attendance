@@ -80,6 +80,8 @@ public class FaceMatchService {
                 .status(FaceMatchRecord.MatchStatus.NEW)
                 .centralSyncState(FaceMatchRecord.CentralSyncState.PENDING)
                 .syncAttempts(0)
+                .attendanceProcessed(false)
+                .processAttempts(0)
                 .build();
 
         try {
@@ -89,6 +91,33 @@ public class FaceMatchService {
             log.debug("Concurrent insert for match {}, using existing row", matchKey);
             return matchRepository.findByMatchKey(matchKey).orElse(null);
         }
+    }
+
+    /** True when the match still has to go through the attendance pipeline. */
+    public static boolean needsAttendanceProcessing(FaceMatchRecord record) {
+        return record != null && Boolean.FALSE.equals(record.getAttendanceProcessed());
+    }
+
+    /** Mark a match as handled by the attendance pipeline. */
+    public void markAttendanceProcessed(FaceMatchRecord record) {
+        record.setAttendanceProcessed(true);
+        record.setProcessError(null);
+        matchRepository.save(record);
+    }
+
+    /**
+     * Record a failed processing attempt. After {@code maxAttempts} the match is given up (marked
+     * processed with the error kept) so a permanently broken match cannot hold back the poller.
+     */
+    public void markAttendanceFailed(FaceMatchRecord record, String error, int maxAttempts) {
+        int attempts = (record.getProcessAttempts() != null ? record.getProcessAttempts() : 0) + 1;
+        record.setProcessAttempts(attempts);
+        record.setProcessError(error != null && error.length() > 500 ? error.substring(0, 500) : error);
+        if (attempts >= maxAttempts) {
+            record.setAttendanceProcessed(true);
+            log.warn("Giving up on match {} after {} attempts: {}", record.getMatchKey(), attempts, error);
+        }
+        matchRepository.save(record);
     }
 
     /** {@code cameraId|identifier|second}; identifier prefers the employee certificate, then the PID. */

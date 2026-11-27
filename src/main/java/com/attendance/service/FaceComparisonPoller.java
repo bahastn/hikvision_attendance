@@ -1,6 +1,5 @@
 package com.attendance.service;
 
-import com.attendance.dto.FaceEvent;
 import com.attendance.entity.CameraConfig;
 import com.attendance.repository.CameraConfigRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +22,9 @@ import java.util.List;
  *
  * <p><b>No match is lost:</b>
  * <ul>
+ *   <li>Everything is in <em>camera</em> time ({@link CameraClockService}), so a camera clock that is
+ *       off, or in another time zone, does not make fresh matches look "old".</li>
+ *   <li>Each match is processed exactly once and retried on failure ({@link MatchIngestService}).</li>
  *   <li>The progress cursor ({@link CameraConfig#getLastMatchTime()}) is persisted in the DB, so a
  *       restart or downtime resumes from the last processed match instead of "now" — the gap is
  *       back-filled on the next poll (bounded by {@code fcsearch-max-catchup-hours}).</li>
@@ -40,12 +42,14 @@ public class FaceComparisonPoller {
     private final CameraConfigRepository cameraRepository;
     private final HikvisionIsapiClient isapiClient;
     private final FaceEventProcessor eventProcessor;
-    private final FaceMatchService faceMatchService;
+    private final MatchIngestService matchIngestService;
+    private final CameraClockService clockService;
 
     @Value("${attendance.camera.fcsearch-enabled:true}")
     private boolean enabled;
 
-    @Value("${attendance.camera.fcsearch-overlap-seconds:10}")
+    /** How far back each poll re-reads (camera time); generous because duplicates are free. */
+    @Value("${attendance.camera.fcsearch-overlap-seconds:120}")
     private long overlapSeconds;
 
     /** Max matches pulled from one camera in a single poll (across all pages). */
@@ -78,70 +82,32 @@ public class FaceComparisonPoller {
 
     private void pollCamera(CameraConfig camera) {
         ZoneId zone = ZoneId.systemDefault();
-        LocalDateTime now = LocalDateTime.now();
+        // Work in CAMERA time: match times (snapTime) are stamped by the camera clock, which may be
+        // behind/ahead of the server or in another time zone. Using the server clock here used to
+        // put the cursor "after" fresh matches so they were skipped forever.
+        LocalDateTime cameraNow = clockService.cameraNow(camera);
 
-        LocalDateTime cursor = camera.getLastMatchTime();
-        LocalDateTime from = cursor != null
-                ? cursor.minusSeconds(overlapSeconds)
-                : now.minusMinutes(firstRunLookbackMinutes);
-
-        // Bound catch-up so a long outage (or an unset/ancient cursor) cannot trigger a
-        // multi-month scan. The window older than this is covered by the nightly sync instead.
-        LocalDateTime earliest = now.minusHours(maxCatchupHours);
-        if (from.isBefore(earliest)) {
-            from = earliest;
+        MatchWindow.Window window = MatchWindow.window(camera.getLastMatchTime(), cameraNow, overlapSeconds,
+                firstRunLookbackMinutes, maxCatchupHours);
+        if (window.cursorReset()) {
+            log.info("Match cursor of {} ({}) was ahead of the camera clock ({}); reset it",
+                    camera.getCameraName(), camera.getLastMatchTime(), cameraNow);
         }
+        LocalDateTime from = window.from();
+        LocalDateTime to = window.to();
 
         List<HikvisionIsapiClient.FaceComparison> matches =
-                isapiClient.searchFaceComparisons(camera, from, now, maxResults);
-
-        long cursorMillis = cursor != null ? cursor.atZone(zone).toInstant().toEpochMilli() : Long.MIN_VALUE;
-        long maxProcessed = cursorMillis;
-
-        for (HikvisionIsapiClient.FaceComparison match : matches) {
-            if (match.snapTimeMillis <= cursorMillis) {
-                continue; // already handled before the cursor; the overlap just guards clock skew
-            }
-            LocalDateTime matchTime = LocalDateTime.ofInstant(
-                    Instant.ofEpochMilli(match.snapTimeMillis), zone);
-
-            log.info("Face match on {}: {} ({}) {}%",
-                    camera.getIpAddress(), match.name, match.certificateNumber, match.similarity);
-
-            // 1) Durable raw-match log (idempotent) — every match, queued for central sync.
-            faceMatchService.recordMatch(camera, match.pid, match.certificateNumber,
-                    match.name, match.similarity, matchTime, match.facePicUrl, match.snapPicUrl);
-
-            // 2) Attendance pipeline (its own per-person cooldown decides check-in/out).
-            FaceEvent event = FaceEvent.builder()
-                    .employeeNo(match.certificateNumber)
-                    .personName(match.name)
-                    .similarity(match.similarity)
-                    .eventTimeMillis(match.snapTimeMillis)
-                    .pictureUrl(match.facePicUrl)
-                    .build();
-            byte[] picture = match.facePicUrl != null
-                    ? isapiClient.downloadPicture(camera, match.facePicUrl).orElse(null)
-                    : null;
-            eventProcessor.process(camera, event, picture);
-
-            if (match.snapTimeMillis > maxProcessed) {
-                maxProcessed = match.snapTimeMillis;
-            }
+                isapiClient.searchFaceComparisons(camera, from, to, maxResults);
+        MatchIngestService.Result result = matchIngestService.ingest(camera, matches);
+        if (result.processed() > 0 || result.failed() > 0) {
+            log.debug("FCSearch {}: {} new, {} already processed, {} failed", camera.getCameraName(),
+                    result.processed(), result.alreadyDone(), result.failed());
         }
 
-        // Advance the cursor: at least to "now - overlap" (so an idle camera doesn't re-scan a
-        // growing window), but never past the newest match we actually processed, and never
-        // backwards.
-        LocalDateTime caughtUp = now.minusSeconds(overlapSeconds);
-        LocalDateTime processedUpTo = maxProcessed > cursorMillis
-                ? LocalDateTime.ofInstant(Instant.ofEpochMilli(maxProcessed), zone)
-                : null;
-        LocalDateTime newCursor = caughtUp;
-        if (processedUpTo != null && processedUpTo.isAfter(newCursor)) {
-            newCursor = processedUpTo;
-        }
-        if (cursor == null || newCursor.isAfter(cursor)) {
+        LocalDateTime newCursor = MatchWindow.nextCursor(cameraNow, overlapSeconds,
+                result.newest() != null ? LocalDateTime.ofInstant(Instant.ofEpochMilli(result.newest()), zone) : null,
+                result.oldestFailed() != null ? LocalDateTime.ofInstant(Instant.ofEpochMilli(result.oldestFailed()), zone) : null);
+        if (camera.getLastMatchTime() == null || !newCursor.equals(camera.getLastMatchTime())) {
             camera.setLastMatchTime(newCursor);
             cameraRepository.save(camera);
         }
