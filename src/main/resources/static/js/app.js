@@ -1242,6 +1242,115 @@ class AttendanceApp {
             .map(cb => cb.value);
     }
 
+    // ==================== INSIGHTFACE STATUS & CALIBRATION ====================
+    async loadInsightFaceStatus() {
+        const card = document.getElementById('insightface-card');
+        const el = document.getElementById('insightface-status');
+        if (!card || !el) return;
+        try {
+            const response = await this.ajaxGet('/api/insightface/status');
+            const s = response.success ? response.data : null;
+            if (!s || !s.enabled) {
+                card.style.display = 'none';
+                return;
+            }
+            card.style.display = '';
+            const c = s.config || {};
+            const yes = this.translate('calibration.on', 'on');
+            const no = this.translate('calibration.off', 'off');
+            el.innerHTML = `
+                <span class="badge ${s.available ? 'badge-present' : 'badge-absent'}">
+                    ${s.available ? this.translate('calibration.serviceUp', 'Service running') : this.translate('calibration.serviceDown', 'Service not reachable')}
+                </span>
+                <span>${this.translate('calibration.employees', 'Employees')}: <b>${s.gallerySize}</b></span>
+                <span>${this.translate('calibration.photos', 'Photos')}: <b>${s.sampleCount}</b></span>
+                <span>${this.translate('calibration.high', 'High')}: <b>${c.highThreshold}</b></span>
+                <span>${this.translate('calibration.low', 'Low')}: <b>${c.lowThreshold}</b></span>
+                <span>${this.translate('calibration.margin', 'Margin')}: <b>${c.minMargin}</b></span>
+                <span>${this.translate('calibration.learnReviews', 'Learn from reviews')}: <b>${c.learnFromReviews ? yes : no}</b></span>
+                <span>${this.translate('calibration.autoLearn', 'Auto-learn')}: <b>${c.autoLearn ? yes : no}</b></span>
+                <span>${this.translate('calibration.verify', 'Check camera matches')}: <b>${c.verifyCameraMatches ? yes : no}</b></span>`;
+        } catch (e) {
+            card.style.display = 'none';
+        }
+    }
+
+    async runCalibration() {
+        const out = document.getElementById('calibration-result');
+        if (!out) return;
+        out.innerHTML = `<div class="camera-check-empty">${this.translate('loading', 'Loading...')}</div>`;
+        try {
+            const response = await this.ajaxGet('/api/insightface/calibration');
+            if (!response.success) throw new Error(response.message || 'Failed');
+            this.renderCalibration(response.data);
+        } catch (e) {
+            out.innerHTML = `<div class="alert alert-warning">${(e.message || '').replace(/[<>&]/g, '')}</div>`;
+        }
+    }
+
+    renderCalibration(r) {
+        const out = document.getElementById('calibration-result');
+        const pct = (v) => (v == null ? '-' : (Number(v) * 100).toFixed(Number(v) < 0.01 && Number(v) > 0 ? 2 : 1) + '%');
+        const num = (v) => (v == null ? '-' : Number(v).toFixed(2));
+        const maxBin = Math.max(1, ...r.histogram.map(b => Math.max(b.genuine, b.impostor)));
+        const confidenceClass = r.confidence === 'HIGH' ? 'badge-present' : (r.confidence === 'MEDIUM' ? 'badge-late' : 'badge-absent');
+        out.innerHTML = `
+            <div class="calibration-summary">
+                <div class="calibration-box">
+                    <div class="calibration-label">${this.translate('calibration.recHigh', 'Recommended high threshold')}</div>
+                    <div class="calibration-value">${num(r.recommendedHigh)}</div>
+                    <div class="calibration-sub">${this.translate('calibration.current', 'current')} ${num(r.currentHigh)}</div>
+                </div>
+                <div class="calibration-box">
+                    <div class="calibration-label">${this.translate('calibration.recLow', 'Recommended low threshold')}</div>
+                    <div class="calibration-value">${num(r.recommendedLow)}</div>
+                    <div class="calibration-sub">${this.translate('calibration.current', 'current')} ${num(r.currentLow)}</div>
+                </div>
+                <div class="calibration-box">
+                    <div class="calibration-label">${this.translate('calibration.currentFar', 'Wrong person accepted at current high')}</div>
+                    <div class="calibration-value">${pct(r.currentFar)}</div>
+                    <div class="calibration-sub">${this.translate('calibration.currentFrr', 'Right person not auto-recorded')} ${pct(r.currentFrr)}</div>
+                </div>
+                <div class="calibration-box">
+                    <div class="calibration-label">${this.translate('calibration.confidence', 'Confidence')}</div>
+                    <div class="calibration-value"><span class="badge ${confidenceClass}">${r.confidence}</span></div>
+                    <div class="calibration-sub">${r.genuine.count} ${this.translate('calibration.same', 'same-person')} / ${r.impostor.count} ${this.translate('calibration.different', 'different-person')}
+                        &bull; ${r.reviewConfirmed + r.reviewRejected} ${this.translate('calibration.reviews', 'reviews')}</div>
+                </div>
+            </div>
+            ${(r.notes || []).map(n => `<div class="alert alert-info calibration-note"><i class="fas fa-lightbulb"></i> ${String(n).replace(/[<>&]/g, '')}</div>`).join('')}
+            <div class="calibration-legend">
+                <span><i class="calibration-swatch genuine"></i> ${this.translate('calibration.same', 'same-person')}</span>
+                <span><i class="calibration-swatch impostor"></i> ${this.translate('calibration.different', 'different-person')}</span>
+            </div>
+            <div class="calibration-histogram">
+                ${r.histogram.map(b => `
+                    <div class="calibration-bin" title="${num(b.from)}–${num(b.to)}: ${b.genuine} / ${b.impostor}">
+                        <div class="calibration-bars">
+                            <div class="calibration-bar impostor" style="height:${(b.impostor / maxBin) * 100}%"></div>
+                            <div class="calibration-bar genuine" style="height:${(b.genuine / maxBin) * 100}%"></div>
+                        </div>
+                        <div class="calibration-tick">${(b.from * 100) % 10 === 0 ? num(b.from) : ''}</div>
+                    </div>`).join('')}
+            </div>
+            <div class="table-container" style="margin-top:15px;">
+                <table class="table">
+                    <thead><tr>
+                        <th>${this.translate('calibration.threshold', 'Threshold')}</th>
+                        <th>${this.translate('calibration.far', 'Wrong person accepted')}</th>
+                        <th>${this.translate('calibration.frr', 'Right person missed')}</th>
+                        <th>${this.translate('calibration.rejectedAbove', 'Rejected reviews above')}</th>
+                        <th>${this.translate('calibration.confirmedAbove', 'Confirmed reviews above')}</th>
+                    </tr></thead>
+                    <tbody>
+                        ${r.table.map(row => `<tr class="${Math.abs(row.threshold - r.currentHigh) < 0.001 ? 'calibration-current' : ''}">
+                            <td>${num(row.threshold)}</td><td>${pct(row.far)}</td><td>${pct(row.frr)}</td>
+                            <td>${row.reviewsRejectedAbove}</td><td>${row.reviewsConfirmedAbove}</td></tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+    }
+
     // ==================== EMPLOYEE FACE PHOTOS (InsightFace samples) ====================
     openFaceSamplesModal(employeeId, employeeName) {
         this.faceSamplesEmployeeId = employeeId;
@@ -1529,6 +1638,8 @@ class AttendanceApp {
         this.loadFaceLibraryCameras();
         this.loadFaceCaptures();
         this.loadPendingReviews();
+        this.loadInsightFaceStatus();
+        document.getElementById('btn-run-calibration')?.addEventListener('click', () => this.runCalibration());
 
         document.getElementById('btn-refresh-captures')?.addEventListener('click', () => {
             this.loadFaceCaptures();

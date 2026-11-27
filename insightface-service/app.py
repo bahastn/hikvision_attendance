@@ -25,8 +25,8 @@ Response of /embed:
          "face_size": 148.0,          # shorter side of the face box, in pixels
          "pose": [pitch, yaw, roll],  # degrees; yaw 0 = frontal (null if unknown)
          "pose_source": "3d68",       # "3d68" (landmark model) or "kps" (rough estimate)
-         "blur": 182.4}               # Laplacian variance of the face resized to 112x112;
-                                      # higher = sharper
+         "blur": 6.3}                 # sharpness of the face (see _blur_score); higher =
+                                      # sharper. Sharp ~3-11, slightly soft ~1, blurred <0.5
       ]
     }
 The quality fields are measurements only; the Spring Boot app decides what is acceptable.
@@ -127,7 +127,11 @@ FACE_NORM_SIZE = 112
 
 def _blur_score(img: np.ndarray, bbox) -> Optional[float]:
     """Sharpness of the face crop: variance of a 4-neighbour Laplacian on the grayscale face
-    resized to 112x112 (so the value is comparable between small and large faces)."""
+    resized to 112x112, divided by the variance of the face itself (x100).
+
+    Resizing makes the value comparable between small and large faces; dividing by the face's own
+    contrast makes it independent of brightness and contrast, so a dim but sharp photo is not
+    mistaken for a blurred one. Typical values: sharp 3-11, slightly soft ~1, blurred < 0.5."""
     if bbox is None:
         return None
     h, w = img.shape[:2]
@@ -141,7 +145,7 @@ def _blur_score(img: np.ndarray, bbox) -> Optional[float]:
         (FACE_NORM_SIZE, FACE_NORM_SIZE), Image.BILINEAR)
     g = np.asarray(gray, dtype=np.float32)
     lap = (-4.0 * g[1:-1, 1:-1] + g[:-2, 1:-1] + g[2:, 1:-1] + g[1:-1, :-2] + g[1:-1, 2:])
-    return float(lap.var())
+    return float(lap.var() / max(float(g.var()), 1.0) * 100.0)
 
 
 def _pose(face):

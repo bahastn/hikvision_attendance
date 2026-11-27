@@ -48,7 +48,7 @@ public class InsightFaceSettings {
     @Value("${insightface.probe.max-pitch:40}")
     private double probeMaxPitch;
 
-    @Value("${insightface.probe.min-blur:10}")
+    @Value("${insightface.probe.min-blur:0.4}")
     private double probeMinBlur;
 
     // ---- Reference sample quality ---------------------------------------------------------------
@@ -65,7 +65,7 @@ public class InsightFaceSettings {
     @Value("${insightface.sample.max-pitch:30}")
     private double sampleMaxPitch;
 
-    @Value("${insightface.sample.min-blur:30}")
+    @Value("${insightface.sample.min-blur:2.0}")
     private double sampleMinBlur;
 
     /** Maximum number of samples (all sources) per employee. */
@@ -125,7 +125,7 @@ public class InsightFaceSettings {
     @Value("${insightface.learning.max-pitch:35}")
     private double learnMaxPitch;
 
-    @Value("${insightface.learning.min-blur:20}")
+    @Value("${insightface.learning.min-blur:1.5}")
     private double learnMinBlur;
 
     /** Minimum hours between two automatic learnings for the same employee. */

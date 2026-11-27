@@ -47,6 +47,23 @@
         </div>
     </div>
 
+    <!-- InsightFace status and threshold calibration. Hidden while InsightFace is disabled. -->
+    <div class="card" id="insightface-card" style="display:none;margin-top:20px;">
+        <div class="card-header">
+            <span class="card-title">
+                <i class="fas fa-chart-column icon-spacing"></i><span th:text="#{calibration.title}">Recognition accuracy (InsightFace)</span>
+            </span>
+            <button class="btn btn-secondary" id="btn-run-calibration">
+                <i class="fas fa-flask"></i> <span th:text="#{calibration.run}">Analyse thresholds</span>
+            </button>
+        </div>
+        <div class="card-body">
+            <div id="insightface-status" class="calibration-status"></div>
+            <p style="color:var(--hk-text-muted);font-size:13px;margin:10px 0;" th:text="#{calibration.hint}">Measures how similar photos of the same person are, compared with photos of different people, on your own employees' photos and your review decisions, and recommends thresholds. It changes nothing: apply a recommendation with INSIGHTFACE_HIGH_THRESHOLD / INSIGHTFACE_LOW_THRESHOLD and restart.</p>
+            <div id="calibration-result"></div>
+        </div>
+    </div>
+
     <!-- Add to Employee modal -->
     <div class="modal-overlay" id="capture-enroll-modal">
         <div class="modal">

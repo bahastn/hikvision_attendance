@@ -4,7 +4,10 @@ import com.attendance.dto.ApiResponse;
 import com.attendance.security.RequiresPermission;
 import com.attendance.service.insightface.InsightFaceBackfillService;
 import com.attendance.service.insightface.InsightFaceClient;
+import com.attendance.service.insightface.InsightFaceCalibrationService;
 import com.attendance.service.insightface.InsightFaceGallery;
+import com.attendance.service.insightface.InsightFaceSettings;
+import com.attendance.service.insightface.ThresholdCalibrator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -30,6 +33,8 @@ public class InsightFaceRestController {
     private final InsightFaceClient client;
     private final InsightFaceGallery gallery;
     private final InsightFaceBackfillService backfillService;
+    private final InsightFaceSettings settings;
+    private final InsightFaceCalibrationService calibrationService;
 
     /** Whether the feature is enabled, whether the sidecar is reachable, and the gallery size. */
     @GetMapping("/status")
@@ -40,7 +45,31 @@ public class InsightFaceRestController {
         status.put("available", client.isEnabled() && client.checkHealth());
         status.put("gallerySize", gallery.size());
         status.put("sampleCount", gallery.sampleCount());
+        Map<String, Object> config = new LinkedHashMap<>();
+        config.put("model", settings.getModel());
+        config.put("highThreshold", settings.getHighThreshold());
+        config.put("lowThreshold", settings.getLowThreshold());
+        config.put("minMargin", settings.getMinMargin());
+        config.put("aggregation", settings.aggregationMode().name());
+        config.put("learnFromReviews", settings.isLearnFromReviews());
+        config.put("autoLearn", settings.isAutoLearn());
+        config.put("verifyCameraMatches", settings.isVerifyCameraMatches());
+        config.put("verifyOnWeak", settings.verifyWeakGoesToReview() ? "REVIEW" : "ACCEPT");
+        status.put("config", config);
         return ResponseEntity.ok(ApiResponse.success(status));
+    }
+
+    /**
+     * Threshold calibration report: same-person vs different-person score distributions measured on
+     * the enrolled photos and on logged review decisions, with recommended thresholds. Read-only.
+     */
+    @GetMapping("/calibration")
+    @RequiresPermission(module = FACE_RECOGNITION, action = VIEW)
+    public ResponseEntity<ApiResponse<ThresholdCalibrator.Report>> calibration() {
+        if (!client.isEnabled()) {
+            return ResponseEntity.ok(ApiResponse.error("InsightFace is disabled (set insightface.enabled=true)"));
+        }
+        return ResponseEntity.ok(ApiResponse.success(calibrationService.report()));
     }
 
     /**

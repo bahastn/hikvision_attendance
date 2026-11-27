@@ -8,6 +8,8 @@ import com.attendance.entity.Employee;
 import com.attendance.entity.FaceCapture;
 import com.attendance.repository.EmployeeRepository;
 import com.attendance.repository.FaceCaptureRepository;
+import com.attendance.repository.FaceReviewOutcomeRepository;
+import com.attendance.entity.FaceReviewOutcome;
 import lombok.RequiredArgsConstructor;
 import com.attendance.service.insightface.FaceEmbeddingEvents;
 import lombok.extern.slf4j.Slf4j;
@@ -47,6 +49,7 @@ public class FaceCaptureService {
     private final AttendanceService attendanceService;
     private final EmployeeRepository employeeRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final FaceReviewOutcomeRepository reviewOutcomeRepository;
 
     @Value("${attendance.face-storage-dir:faces}")
     private String faceStorageDir;
@@ -193,6 +196,7 @@ public class FaceCaptureService {
         capture.setMatchedEmployeeId(employee.getEmployeeId());
         capture.setMatchedEmployeeName(employee.getFullName());
         captureRepository.save(capture);
+        logReviewOutcome(capture, employee.getEmployeeId().equals(capture.getCandidateEmployeeId()));
 
         // Let InsightFace learn from the confirmed capture (after commit, async; no-op when off).
         eventPublisher.publishEvent(new FaceEmbeddingEvents.CaptureConfirmed(
@@ -211,6 +215,21 @@ public class FaceCaptureService {
                 .orElseThrow(() -> new RuntimeException("Face capture not found"));
         capture.setReviewStatus(FaceCapture.ReviewStatus.REJECTED);
         captureRepository.save(capture);
+        logReviewOutcome(capture, false);
+    }
+
+    /** Keep an image-free record of the decision for threshold calibration. */
+    private void logReviewOutcome(FaceCapture capture, boolean confirmedCandidate) {
+        if (capture.getCandidateScore() == null) {
+            return;
+        }
+        reviewOutcomeRepository.save(FaceReviewOutcome.builder()
+                .captureId(capture.getId())
+                .source(capture.getRecognitionSource())
+                .candidateEmployeeId(capture.getCandidateEmployeeId())
+                .candidateScore(capture.getCandidateScore())
+                .confirmedCandidate(confirmedCandidate)
+                .build());
     }
 
     /** Captures still within the retention window, newest first. cameraId == null means all cameras. */

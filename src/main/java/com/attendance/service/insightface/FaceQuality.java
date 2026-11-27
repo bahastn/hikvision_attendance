@@ -122,7 +122,7 @@ public final class FaceQuality {
         }
         if (face.blur() != null && face.blur() < policy.minBlur()) {
             return Assessment.fail(Issue.BLURRY,
-                    String.format("Photo too blurry (sharpness %.0f < %.0f)", face.blur(), policy.minBlur()), score);
+                    String.format("Photo too blurry (sharpness %.1f < %.1f)", face.blur(), policy.minBlur()), score);
         }
         return Assessment.pass(score);
     }

@@ -11,7 +11,7 @@ package com.attendance.service.insightface;
  * @param faceSize  shorter side of the face box in pixels, or null
  * @param yaw       head turn left/right in degrees (0 = frontal), or null
  * @param pitch     head tilt up/down in degrees, or null
- * @param blur      sharpness (Laplacian variance of the face at 112x112; higher = sharper), or null
+ * @param blur      sharpness, independent of brightness (sharp ~3-11, blurred &lt; 0.5), or null
  */
 public record DetectedFace(float[] embedding, double detScore, float[] bbox, Double faceSize,
                            Double yaw, Double pitch, Double blur) {
