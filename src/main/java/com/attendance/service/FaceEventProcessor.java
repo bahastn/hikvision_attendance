@@ -102,7 +102,8 @@ public class FaceEventProcessor {
         // --- The camera did NOT recognize the face: try the InsightFace fallback layer. ---
         lastAcceptedByPerson.put(cooldownKey, now);
         if (insightFaceService.isEnabled() && pictureBytes != null && pictureBytes.length > 0) {
-            InsightFaceService.RecognitionResult result = insightFaceService.recognize(pictureBytes);
+            InsightFaceService.RecognitionResult result =
+                    insightFaceService.recognize(pictureBytes, () -> downloadBackgroundPicture(camera, event));
             if (result.band() == FaceMatcher.Band.HIGH && result.candidate() != null) {
                 // High confidence -> validate and record attendance just like a camera match.
                 Employee employee = result.candidate();
@@ -117,7 +118,8 @@ public class FaceEventProcessor {
             }
             if (result.band() == FaceMatcher.Band.UNCERTAIN && result.candidate() != null) {
                 // Uncertain -> queue for a human to confirm/reject (no attendance yet).
-                faceCaptureService.recordUncertainMatch(camera, event, pictureBytes, result.candidate(), result.score());
+                faceCaptureService.recordUncertainMatch(camera, event, pictureBytes, result.candidate(), result.score(),
+                        insightFaceService.describeUncertain(result), "INSIGHTFACE");
                 return;
             }
         }
@@ -186,6 +188,15 @@ public class FaceEventProcessor {
             return isapiClient.downloadPicture(camera, event.getPictureUrl()).orElse(null);
         }
         return null;
+    }
+
+    /** The event's second picture (wider scene), downloaded on demand; null when there is none. */
+    private byte[] downloadBackgroundPicture(CameraConfig camera, FaceEvent event) {
+        String url = event.getBackgroundPictureUrl();
+        if (url == null || url.isBlank() || url.equals(event.getPictureUrl())) {
+            return null;
+        }
+        return isapiClient.downloadPicture(camera, url).orElse(null);
     }
 
     /** Save the event JPEG to disk and return the public URL path, or null if unavailable. */

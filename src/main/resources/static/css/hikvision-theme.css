@@ -1939,3 +1939,9 @@ select.form-control {
     top: 6px;
     inset-inline-end: 6px;
 }
+
+/* Reason shown on a pending-review capture */
+.capture-note {
+    white-space: normal;
+    line-height: 1.35;
+}

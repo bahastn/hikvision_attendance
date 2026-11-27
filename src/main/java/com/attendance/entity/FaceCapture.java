@@ -71,6 +71,14 @@ public class FaceCapture {
     private Double candidateScore;
 
     /**
+     * Why this capture needs a human decision, for the reviewer: e.g. the score was below the
+     * automatic threshold, it was too close to another employee, or the camera and InsightFace
+     * disagreed.
+     */
+    @Column(name = "match_note", length = 500)
+    private String matchNote;
+
+    /**
      * Review state of this capture. {@code NONE} for ordinary captures; {@code PENDING_REVIEW} for an
      * uncertain InsightFace suggestion awaiting a human decision; {@code CONFIRMED}/{@code REJECTED}
      * once reviewed. Stored as text; null is treated as NONE.

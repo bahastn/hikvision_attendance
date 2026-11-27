@@ -88,6 +88,17 @@ public class FaceCaptureService {
     @Transactional
     public void recordUncertainMatch(CameraConfig camera, FaceEvent event, byte[] picture,
                                      Employee candidate, double score) {
+        recordUncertainMatch(camera, event, picture, candidate, score, null, "INSIGHTFACE");
+    }
+
+    /**
+     * Queue a capture for review with a note for the reviewer. {@code source} is the recognizer
+     * whose decision is being reviewed ({@code INSIGHTFACE}, or {@code CAMERA_VERIFY} when
+     * InsightFace could not confirm a camera match).
+     */
+    @Transactional
+    public void recordUncertainMatch(CameraConfig camera, FaceEvent event, byte[] picture,
+                                     Employee candidate, double score, String note, String source) {
         if (picture == null || picture.length == 0 || candidate == null) {
             return;
         }
@@ -100,10 +111,11 @@ public class FaceCaptureService {
                     .imageUrl(imageUrl)
                     .personName(event.getPersonName())
                     .similarity(event.getSimilarity())
-                    .recognitionSource("INSIGHTFACE")
+                    .recognitionSource(source != null ? source : "INSIGHTFACE")
                     .candidateEmployeeId(candidate.getEmployeeId())
                     .candidateEmployeeName(candidate.getFullName())
                     .candidateScore(score)
+                    .matchNote(note != null && note.length() > 500 ? note.substring(0, 500) : note)
                     .reviewStatus(FaceCapture.ReviewStatus.PENDING_REVIEW)
                     .capturedAt(capturedAt)
                     .expiresAt(capturedAt.plusHours(retentionHours))
@@ -267,6 +279,7 @@ public class FaceCaptureService {
                 .candidateEmployeeId(c.getCandidateEmployeeId())
                 .candidateEmployeeName(c.getCandidateEmployeeName())
                 .candidateScore(c.getCandidateScore())
+                .matchNote(c.getMatchNote())
                 .reviewStatus(c.getReviewStatus() != null ? c.getReviewStatus().name() : null)
                 .build();
     }

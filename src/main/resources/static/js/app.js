@@ -1586,6 +1586,7 @@ class AttendanceApp {
                         <i class="fas fa-video"></i> ${c.cameraName || '-'}
                     </div>
                     <div class="capture-meta"><i class="far fa-clock"></i> ${this.formatTime(c.capturedAt)}</div>
+                    ${c.matchNote ? `<div class="capture-meta capture-note"><i class="fas fa-circle-info"></i> ${String(c.matchNote).replace(/[<>&]/g, '')}</div>` : ''}
                 </div>
                 <div class="capture-actions">
                     <button class="btn btn-primary" onclick="app.confirmPendingReview(${c.id})">

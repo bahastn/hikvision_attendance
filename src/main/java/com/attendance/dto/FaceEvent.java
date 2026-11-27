@@ -21,6 +21,12 @@ public class FaceEvent {
     private Long eventTimeMillis;
     /** Raw picture URL path on the camera (to be downloaded). */
     private String pictureUrl;
+    /**
+     * Optional second picture of the same event (usually the wider scene / full-resolution snapshot).
+     * InsightFace uses it when {@link #pictureUrl} gives no usable face (too small, blurred, or the
+     * camera reported its library photo instead of the live capture).
+     */
+    private String backgroundPictureUrl;
     /** Serial number of the reporting device. */
     private String deviceId;
 }

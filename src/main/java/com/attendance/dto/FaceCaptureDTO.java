@@ -28,6 +28,8 @@ public class FaceCaptureDTO {
     private String candidateEmployeeId;
     private String candidateEmployeeName;
     private Double candidateScore;
+    /** Why the capture is waiting for review (shown to the reviewer). */
+    private String matchNote;
     /** Review state: NONE / PENDING_REVIEW / CONFIRMED / REJECTED. */
     private String reviewStatus;
 }

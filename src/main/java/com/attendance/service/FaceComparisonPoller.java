@@ -119,6 +119,9 @@ public class FaceComparisonPoller {
                     .similarity(match.similarity)
                     .eventTimeMillis(match.snapTimeMillis)
                     .pictureUrl(match.facePicUrl)
+                    // The other picture of the match; InsightFace falls back to it when the first
+                    // one has no usable face.
+                    .backgroundPictureUrl(match.snapPicUrl)
                     .build();
             byte[] picture = match.facePicUrl != null
                     ? isapiClient.downloadPicture(camera, match.facePicUrl).orElse(null)

@@ -817,6 +817,7 @@ public class HikvisionIsapiClient {
                     .similarity(parseDouble(firstOf(finder, "similarity", "similarityScore")))
                     .eventTimeMillis(time != null ? time : System.currentTimeMillis())
                     .pictureUrl(firstOf(finder, "pictureURL", "picUrl", "snapPicURL", "faceURL", "captureURL"))
+                    .backgroundPictureUrl(firstOf(finder, "bkgUrl", "bkgURL", "backgroundURL", "bgPicURL", "sceneURL"))
                     .deviceId(firstOf(finder, "deviceID", "macAddress"))
                     .build();
         } catch (Exception e) {
