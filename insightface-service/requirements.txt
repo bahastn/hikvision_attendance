@@ -1,0 +1,11 @@
+# Python 3.9 - 3.11 recommended.
+#
+# NOTE: the first install/run downloads the InsightFace model pack (buffalo_l,
+# ~300 MB) into ~/.insightface/models — this needs internet ONCE. After that the
+# service runs fully offline.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+insightface>=0.7.3
+onnxruntime>=1.17        # CPU build; swap for onnxruntime-gpu to use a GPU
+numpy>=1.24
+pillow>=10.0

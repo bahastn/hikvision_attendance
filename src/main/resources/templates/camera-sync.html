@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::sidebar})}">
+<head><title th:text="#{page.cameraSync}">Camera Face Sync</title></head>
+<body>
+<div th:fragment="sidebar">
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">
+                <i class="fas fa-sync-alt icon-spacing"></i><span th:text="#{cameraSync.title}">Camera Face Library Sync</span>
+            </span>
+            <div style="display:flex;gap:10px;align-items:center;">
+                <select class="form-control" id="sync-camera-select" style="width:auto;min-width:200px;">
+                    <option value="" th:text="#{cameraSync.selectCamera}">Select a camera</option>
+                    <option th:each="cam : ${cameras}"
+                            th:value="${cam.id}"
+                            th:text="${cam.cameraName + ' (' + cam.ipAddress + ')'}">Camera</option>
+                </select>
+                <button class="btn btn-primary" id="btn-load-face-lib" disabled>
+                    <i class="fas fa-download"></i> <span th:text="#{cameraSync.load}">Load</span>
+                </button>
+                <button class="btn btn-success" id="btn-sync-face-lib" disabled>
+                    <i class="fas fa-sync"></i> <span th:text="#{cameraSync.sync}">Sync</span>
+                </button>
+                <button class="btn btn-secondary" id="btn-sync-all">
+                    <i class="fas fa-cloud-download-alt"></i> <span th:text="#{cameraSync.syncAll}">Sync All</span>
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-info" style="margin-bottom:15px;">
+                <i class="fas fa-info-circle"></i>
+                <span th:text="#{cameraSync.subtitle}">Load the face library stored on the camera, import new people into the database, or sync to remove deactivated employees from the camera.</span>
+            </div>
+
+            <!-- Sync result panel -->
+            <div id="sync-result-panel" style="display:none;margin-bottom:15px;"></div>
+
+            <!-- Stats row -->
+            <div id="sync-stats" style="display:none;margin-bottom:15px;">
+                <div style="display:flex;gap:20px;flex-wrap:wrap;">
+                    <div class="stat-box">
+                        <span class="stat-number" id="stat-total" style="color:var(--hk-primary);">0</span>
+                        <span class="stat-label" th:text="#{cameraSync.statTotal}">Total on camera</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-number" id="stat-linked" style="color:var(--hk-success,#28a745);">0</span>
+                        <span class="stat-label" th:text="#{cameraSync.statLinked}">Linked to DB</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-number" id="stat-imported" style="color:var(--hk-warning,#ffc107);">0</span>
+                        <span class="stat-label" th:text="#{cameraSync.statImported}">Imported</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-number" id="stat-removed" style="color:var(--hk-danger,#dc3545);">0</span>
+                        <span class="stat-label" th:text="#{cameraSync.statRemoved}">Removed</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Face library table -->
+            <div id="face-lib-table-container">
+                <div style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{cameraSync.noCamera}">
+                    Select a camera and click Load to see its face library.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

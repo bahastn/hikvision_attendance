@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::sidebar})}">
+<head>
+    <title th:text="#{page.cameraSync}">Camera Face Sync</title>
+    <style>
+        .preview-section {
+            margin-bottom: 20px;
+            border: 1px solid var(--hk-border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .preview-header {
+            padding: 12px 15px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+        .preview-header.new { background: #d4edda; color: #155724; }
+        .preview-header.existing { background: #cce5ff; color: #004085; }
+        .preview-header.conflict { background: #fff3cd; color: #856404; }
+        .preview-header.deactivated { background: #f8d7da; color: #721c24; }
+        .preview-header.no-cert { background: #e2e3e5; color: #383d41; }
+        .preview-content {
+            padding: 15px;
+            display: none;
+        }
+        .preview-content.expanded {
+            display: block;
+        }
+        .person-row {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            gap: 15px;
+        }
+        .person-row:hover {
+            background: #f8f9fa;
+        }
+        .person-photo {
+            width: 50px;
+            height: 50px;
+            object-fit: cover;
+            border-radius: 4px;
+        }
+        .person-info {
+            flex: 1;
+        }
+        .person-name {
+            font-weight: bold;
+            margin-bottom: 3px;
+        }
+        .person-details {
+            font-size: 12px;
+            color: var(--hk-text-muted);
+        }
+        .person-action {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: #e9ecef;
+        }
+        .conflict-badge {
+            background: #ffc107;
+            color: #000;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+        .sync-progress {
+            display: none;
+            margin: 20px 0;
+        }
+        .sync-progress.active {
+            display: block;
+        }
+        .progress-bar-container {
+            background: #e9ecef;
+            border-radius: 4px;
+            height: 20px;
+            overflow: hidden;
+        }
+        .progress-bar {
+            background: var(--hk-primary);
+            height: 100%;
+            transition: width 0.3s;
+        }
+        .sync-log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 15px;
+        }
+        .select-all-header {
+            padding: 10px 15px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+        }
+    </style>
+</head>
+<body>
+<div th:fragment="sidebar">
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">
+                <i class="fas fa-sync-alt icon-spacing"></i>
+                <span th:text="#{cameraSync.title}">Camera Face Library Sync</span>
+            </span>
+            <div style="display:flex;gap:10px;align-items:center;">
+                <select class="form-control" id="sync-camera-select" style="width:auto;min-width:200px;">
+                    <option value="" th:text="#{cameraSync.selectCamera}">Select a camera</option>
+                    <option th:each="cam : ${cameras}"
+                            th:value="${cam.id}"
+                            th:text="${cam.cameraName + ' (' + cam.ipAddress + ')'}">Camera</option>
+                </select>
+                <button class="btn btn-primary" id="btn-preview" disabled>
+                    <i class="fas fa-eye"></i> <span th:text="#{cameraSync.preview}">Preview</span>
+                </button>
+                <button class="btn btn-success" id="btn-sync-selected" disabled>
+                    <i class="fas fa-check-square"></i> <span th:text="#{cameraSync.syncSelected}">Sync Selected</span>
+                </button>
+                <button class="btn btn-warning" id="btn-sync-all" disabled>
+                    <i class="fas fa-sync"></i> <span th:text="#{cameraSync.syncAll}">Sync All</span>
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-info" style="margin-bottom:15px;">
+                <i class="fas fa-info-circle"></i>
+                <span th:text="#{cameraSync.subtitle}">Preview changes before syncing. Select which people to import, link, or remove from the camera face library.</span>
+            </div>
+
+            <!-- Sync Progress -->
+            <div class="sync-progress" id="sync-progress">
+                <h5><i class="fas fa-spinner fa-spin"></i> Syncing...</h5>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progress-bar" style="width:0%"></div>
+                </div>
+                <div class="sync-log" id="sync-log"></div>
+            </div>
+
+            <!-- Stats Row -->
+            <div id="sync-stats" style="display:none;margin-bottom:20px;">
+                <div style="display:flex;gap:20px;flex-wrap:wrap;">
+                    <div class="stat-box">
+                        <span class="stat-number" id="stat-total" style="color:var(--hk-primary);">0</span>
+                        <span class="stat-label" th:text="#{cameraSync.statTotal}">Total on camera</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-number" id="stat-new" style="color:#28a745;">0</span>
+                        <span class="stat-label" th:text="#{cameraSync.statNew}">New</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-number" id="stat-existing" style="color:#17a2b8;">0</span>
+                        <span class="stat-label" th:text="#{cameraSync.statExisting}">Existing</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-number" id="stat-conflicts" style="color:#ffc107;">0</span>
+                        <span class="stat-label" th:text="#{cameraSync.statConflicts}">Conflicts</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-number" id="stat-deactivated" style="color:#dc3545;">0</span>
+                        <span class="stat-label" th:text="#{cameraSync.statDeactivated}">Deactivated</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Preview Container -->
+            <div id="preview-container">
+                <div style="text-align:center;color:var(--hk-text-muted);padding:40px;" th:text="#{cameraSync.noCamera}">
+                    Select a camera and click Preview to see what will be synced.
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div id="action-buttons" style="display:none;margin-top:20px;padding-top:20px;border-top:1px solid var(--hk-border);">
+                <div style="display:flex;gap:10px;justify-content:flex-end;">
+                    <button class="btn btn-secondary" id="btn-cancel-preview">
+                        <i class="fas fa-times"></i> <span th:text="#{common.cancel}">Cancel</span>
+                    </button>
+                    <button class="btn btn-primary" id="btn-confirm-sync">
+                        <i class="fas fa-check"></i> <span th:text="#{cameraSync.confirmSync}">Confirm Sync</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Conflict Resolution Modal -->
+    <div class="modal-overlay" id="conflict-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 th:text="#{cameraSync.resolveConflict}">Resolve Conflict</h3>
+                <button class="modal-close" onclick="app.closeModal('conflict-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="conflict-pid">
+                <input type="hidden" id="conflict-camera-id">
+                
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span id="conflict-message">Name mismatch detected</span>
+                </div>
+
+                <div class="row" style="margin-top:15px;">
+                    <div class="col-6">
+                        <div class="form-group" style="text-align:center;padding:15px;background:#f8f9fa;border-radius:8px;">
+                            <h5 th:text="#{cameraSync.cameraValue}">Camera Value</h5>
+                            <p id="camera-value" style="font-size:18px;font-weight:bold;">-</p>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="form-group" style="text-align:center;padding:15px;background:#f8f9fa;border-radius:8px;">
+                            <h5 th:text="#{cameraSync.databaseValue}">Database Value</h5>
+                            <p id="database-value" style="font-size:18px;font-weight:bold;">-</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-top:15px;">
+                    <label class="form-label" th:text="#{cameraSync.resolution}">Resolution</label>
+                    <div style="display:flex;flex-direction:column;gap:10px;">
+                        <label style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid #ddd;border-radius:4px;cursor:pointer;">
+                            <input type="radio" name="resolution" value="USE_CAMERA">
+                            <span th:text="#{cameraSync.useCamera}">Use camera value</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid #ddd;border-radius:4px;cursor:pointer;">
+                            <input type="radio" name="resolution" value="USE_DATABASE">
+                            <span th:text="#{cameraSync.useDatabase}">Use database value</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid #ddd;border-radius:4px;cursor:pointer;">
+                            <input type="radio" name="resolution" value="MERGE">
+                            <span th:text="#{cameraSync.merge}">Merge (keep both)</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="app.closeModal('conflict-modal')" th:text="#{common.cancel}">Cancel</button>
+                <button class="btn btn-primary" id="btn-resolve-conflict" th:text="#{common.apply}">Apply</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+    let currentCameraId = null;
+    let previewData = null;
+    let selectedPids = new Set();
+
+    document.addEventListener('DOMContentLoaded', function() {
+        setupEventListeners();
+    });
+
+    function setupEventListeners() {
+        document.getElementById('sync-camera-select').addEventListener('change', function() {
+            currentCameraId = this.value;
+            const hasCamera = !!this.value;
+            document.getElementById('btn-preview').disabled = !hasCamera;
+            document.getElementById('btn-sync-selected').disabled = !hasCamera;
+            document.getElementById('btn-sync-all').disabled = !hasCamera;
+            
+            if (!hasCamera) {
+                resetUI();
+            }
+        });
+
+        document.getElementById('btn-preview').addEventListener('click', loadPreview);
+        document.getElementById('btn-sync-selected').addEventListener('click', syncSelected);
+        document.getElementById('btn-sync-all').addEventListener('click', syncAll);
+        document.getElementById('btn-cancel-preview').addEventListener('click', resetUI);
+        document.getElementById('btn-confirm-sync').addEventListener('click', confirmSync);
+        document.getElementById('btn-resolve-conflict').addEventListener('click', resolveConflict);
+    }
+
+    function loadPreview() {
+        if (!currentCameraId) return;
+
+        const container = document.getElementById('preview-container');
+        container.innerHTML = '<div style="text-align:center;padding:40px;"><i class="fas fa-spinner fa-spin fa-2x"></i><p>Loading preview...</p></div>';
+
+        fetch('/api/camera-face-library/' + currentCameraId + '/preview')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    previewData = data.data;
+                    renderPreview(previewData);
+                    updateStats(previewData);
+                    document.getElementById('sync-stats').style.display = 'block';
+                    document.getElementById('action-buttons').style.display = 'block';
+                } else {
+                    container.innerHTML = '<div class="alert alert-danger">Error: ' + data.message + '</div>';
+                }
+            })
+            .catch(error => {
+                container.innerHTML = '<div class="alert alert-danger">Error: ' + error.message + '</div>';
+            });
+    }
+
+    function renderPreview(data) {
+        const container = document.getElementById('preview-container');
+        selectedPids.clear();
+
+        let html = '';
+
+        // New People Section
+        if (data.newPeople && data.newPeople.length > 0) {
+            html += createSection('new', 'New People (' + data.newPeople.length + ')', 
+                'These people will be imported as new employees', data.newPeople, true);
+        }
+
+        // Existing People Section
+        if (data.existingPeople && data.existingPeople.length > 0) {
+            html += createSection('existing', 'Existing Employees (' + data.existingPeople.length + ')', 
+                'These people are already in the database and will be linked', data.existingPeople, true);
+        }
+
+        // Conflicts Section
+        if (data.conflicts && data.conflicts.length > 0) {
+            html += createSection('conflict', 'Conflicts (' + data.conflicts.length + ')', 
+                'These people have different data on camera vs database', data.conflicts, true);
+        }
+
+        // Deactivated Section
+        if (data.deactivated && data.deactivated.length > 0) {
+            html += createSection('deactivated', 'Deactivated Employees (' + data.deactivated.length + ')', 
+                'These people will be removed from the camera', data.deactivated, true);
+        }
+
+        // No Certificate Section
+        if (data.noCertificate && data.noCertificate.length > 0) {
+            html += createSection('no-cert', 'No Certificate Number (' + data.noCertificate.length + ')', 
+                'These people cannot be synced (missing certificate number)', data.noCertificate, false);
+        }
+
+        if (html === '') {
+            html = '<div style="text-align:center;padding:40px;color:var(--hk-text-muted);">No people found on camera</div>';
+        }
+
+        container.innerHTML = html;
+
+        // Add event listeners
+        document.querySelectorAll('.preview-header').forEach(header => {
+            header.addEventListener('click', function() {
+                const content = this.nextElementSibling;
+                content.classList.toggle('expanded');
+            });
+        });
+
+        document.querySelectorAll('.person-checkbox').forEach(cb => {
+            cb.addEventListener('change', function() {
+                if (this.checked) {
+                    selectedPids.add(this.dataset.pid);
+                } else {
+                    selectedPids.delete(this.dataset.pid);
+                }
+                updateSyncButton();
+            });
+        });
+
+        document.querySelectorAll('.select-all-section').forEach(cb => {
+            cb.addEventListener('change', function() {
+                const section = this.dataset.section;
+                const checkboxes = document.querySelectorAll('.person-checkbox[data-section="' + section + '"]');
+                checkboxes.forEach(personCb => {
+                    personCb.checked = this.checked;
+                    if (this.checked) {
+                        selectedPids.add(personCb.dataset.pid);
+                    } else {
+                        selectedPids.delete(personCb.dataset.pid);
+                    }
+                });
+                updateSyncButton();
+            });
+        });
+
+        document.querySelectorAll('.btn-resolve').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                showConflictModal(this.dataset.pid, this.dataset.cameraValue, this.dataset.dbValue);
+            });
+        });
+    }
+
+    function createSection(type, title, description, people, selectable) {
+        const sectionId = 'section-' + type;
+        let html = '<div class="preview-section">';
+        html += '<div class="preview-header ' + type + '">';
+        html += '<span><i class="fas fa-chevron-down"></i> ' + title + '</span>';
+        html += '<span>' + people.length + ' people</span>';
+        html += '</div>';
+        html += '<div class="preview-content expanded">';
+        html += '<p style="margin-bottom:15px;color:var(--hk-text-muted);font-size:13px;">' + description + '</p>';
+        
+        if (selectable) {
+            html += '<div class="select-all-header">';
+            html += '<label style="display:flex;align-items:center;gap:10px;cursor:pointer;">';
+            html += '<input type="checkbox" class="select-all-section" data-section="' + type + '" checked>';
+            html += '<span>Select All</span>';
+            html += '</label>';
+            html += '</div>';
+        }
+
+        people.forEach(person => {
+            html += '<div class="person-row">';
+            if (selectable) {
+                html += '<input type="checkbox" class="person-checkbox" data-pid="' + person.pid + '" data-section="' + type + '" checked>';
+                selectedPids.add(person.pid);
+            }
+            html += '<img class="person-photo" src="/images/no-photo.png" onerror="this.src=\'/images/no-photo.png\'">';
+            html += '<div class="person-info">';
+            html += '<div class="person-name">' + (person.name || 'Unknown') + '</div>';
+            html += '<div class="person-details">';
+            html += 'ID: ' + (person.certificateNumber || 'N/A') + ' | PID: ' + person.pid;
+            if (person.employeeName) {
+                html += ' | DB: ' + person.employeeName;
+            }
+            html += '</div>';
+            if (person.conflictReason) {
+                html += '<div class="conflict-badge">' + person.conflictReason + '</div>';
+            }
+            html += '</div>';
+            html += '<div class="person-action">' + (person.suggestedAction || 'No action') + '</div>';
+            if (type === 'conflict') {
+                html += '<button class="btn btn-sm btn-warning btn-resolve" data-pid="' + person.pid + '" ';
+                html += 'data-camera-value="' + (person.name || '') + '" ';
+                html += 'data-db-value="' + (person.employeeName || '') + '">Resolve</button>';
+            }
+            html += '</div>';
+        });
+
+        html += '</div></div>';
+        return html;
+    }
+
+    function updateStats(data) {
+        document.getElementById('stat-total').textContent = data.totalOnCamera || 0;
+        document.getElementById('stat-new').textContent = data.totalNew || 0;
+        document.getElementById('stat-existing').textContent = data.totalExisting || 0;
+        document.getElementById('stat-conflicts').textContent = data.totalConflicts || 0;
+        document.getElementById('stat-deactivated').textContent = data.totalDeactivated || 0;
+    }
+
+    function updateSyncButton() {
+        const btn = document.getElementById('btn-sync-selected');
+        btn.textContent = 'Sync Selected (' + selectedPids.size + ')';
+    }
+
+    function showConflictModal(pid, cameraValue, dbValue) {
+        document.getElementById('conflict-pid').value = pid;
+        document.getElementById('conflict-camera-id').value = currentCameraId;
+        document.getElementById('camera-value').textContent = cameraValue;
+        document.getElementById('database-value').textContent = dbValue;
+        document.getElementById('conflict-message').textContent = 
+            'Name mismatch: Camera has "' + cameraValue + '" but database has "' + dbValue + '"';
+        app.openModal('conflict-modal');
+    }
+
+    function resolveConflict() {
+        const pid = document.getElementById('conflict-pid').value;
+        const resolution = document.querySelector('input[name="resolution"]:checked');
+        
+        if (!resolution) {
+            alert('Please select a resolution');
+            return;
+        }
+
+        fetch('/api/camera-face-library/' + currentCameraId + '/resolve-conflict', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                pid: pid,
+                resolution: resolution.value,
+                performedBy: 'user'
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                app.closeModal('conflict-modal');
+                loadPreview(); // Refresh preview
+            } else {
+                alert('Resolution failed: ' + data.message);
+            }
+        });
+    }
+
+    function syncSelected() {
+        if (selectedPids.size === 0) {
+            alert('Please select at least one person to sync');
+            return;
+        }
+        performSync(Array.from(selectedPids));
+    }
+
+    function syncAll() {
+        if (!confirm('Sync all people from this camera? This will import new people, link existing ones, and remove deactivated employees.')) {
+            return;
+        }
+        performSync(null);
+    }
+
+    function confirmSync() {
+        performSync(Array.from(selectedPids));
+    }
+
+    let syncPollTimer = null;
+
+    function performSync(selectedPidsList) {
+        const progressDiv = document.getElementById('sync-progress');
+        const progressBar = document.getElementById('progress-bar');
+        const syncLog = document.getElementById('sync-log');
+
+        if (syncPollTimer) { clearInterval(syncPollTimer); syncPollTimer = null; }
+
+        progressDiv.classList.add('active');
+        progressBar.style.width = '10%';
+        syncLog.innerHTML = 'Starting sync in the background...\n';
+
+        const url = selectedPidsList
+            ? '/api/camera-face-library/' + currentCameraId + '/selective-sync'
+            : '/api/camera-face-library/' + currentCameraId + '/sync';
+
+        const body = selectedPidsList
+            ? { selectedPids: selectedPidsList, performedBy: 'user' }
+            : null;
+
+        fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: body ? JSON.stringify(body) : null
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.data && data.data.jobId) {
+                syncLog.innerHTML += 'Job started (' + data.data.jobId + '). Working...\n';
+                pollSyncJob(data.data.jobId);
+            } else {
+                progressBar.style.width = '100%';
+                syncLog.innerHTML += '\nError: ' + (data.message || 'could not start sync');
+            }
+        })
+        .catch(error => {
+            syncLog.innerHTML += '\nError: ' + error.message;
+        });
+    }
+
+    function pollSyncJob(jobId) {
+        const progressDiv = document.getElementById('sync-progress');
+        const progressBar = document.getElementById('progress-bar');
+        const syncLog = document.getElementById('sync-log');
+        let pct = 10;
+
+        syncPollTimer = setInterval(() => {
+            fetch('/api/camera-face-library/jobs/' + jobId)
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) {
+                        clearInterval(syncPollTimer); syncPollTimer = null;
+                        syncLog.innerHTML += '\nError: ' + (data.message || 'job lost');
+                        return;
+                    }
+                    const job = data.data;
+                    if (job.state === 'RUNNING') {
+                        pct = Math.min(pct + 7, 90);
+                        progressBar.style.width = pct + '%';
+                        return;
+                    }
+                    // DONE or ERROR
+                    clearInterval(syncPollTimer); syncPollTimer = null;
+                    progressBar.style.width = '100%';
+                    if (job.state === 'ERROR') {
+                        syncLog.innerHTML += '\nSync failed: ' + (job.error || 'unknown error');
+                        return;
+                    }
+                    syncLog.innerHTML += '\nSync completed!\n';
+                    syncLog.innerHTML += 'Imported: ' + job.imported + '\n';
+                    syncLog.innerHTML += 'Linked: ' + job.linked + '\n';
+                    syncLog.innerHTML += 'Updated: ' + job.updated + '\n';
+                    syncLog.innerHTML += 'Removed: ' + job.removed + '\n';
+                    syncLog.innerHTML += 'Skipped: ' + job.skipped + '\n';
+                    if (job.messages && job.messages.length > 0) {
+                        syncLog.innerHTML += '\nMessages:\n' + job.messages.join('\n');
+                    }
+                    setTimeout(() => {
+                        progressDiv.classList.remove('active');
+                        loadPreview();
+                    }, 2500);
+                })
+                .catch(err => {
+                    clearInterval(syncPollTimer); syncPollTimer = null;
+                    syncLog.innerHTML += '\nError polling job: ' + err.message;
+                });
+        }, 1500);
+    }
+
+    function resetUI() {
+        document.getElementById('preview-container').innerHTML = 
+            '<div style="text-align:center;color:var(--hk-text-muted);padding:40px;">Select a camera and click Preview to see what will be synced.</div>';
+        document.getElementById('sync-stats').style.display = 'none';
+        document.getElementById('action-buttons').style.display = 'none';
+        document.getElementById('sync-progress').classList.remove('active');
+        selectedPids.clear();
+        previewData = null;
+    }
+</script>
+</div>
+</body>
+</html>

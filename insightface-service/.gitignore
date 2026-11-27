@@ -1,0 +1,8 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# InsightFace model cache, if copied locally (normally lives in ~/.insightface)
+models/
+*.onnx

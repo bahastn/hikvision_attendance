@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::sidebar})}">
+<head><title th:text="#{page.attendanceSync}">Attendance Sync</title></head>
+<body>
+<div th:fragment="sidebar">
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">
+                <i class="fas fa-cloud-download-alt icon-spacing"></i><span th:text="#{attendanceSync.title}">Attendance Sync from Camera</span>
+            </span>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-info" style="margin-bottom:20px;">
+                <i class="fas fa-info-circle"></i>
+                <span th:text="#{attendanceSync.subtitle}">Download all attendance records from the camera's face comparison history. This ensures no attendance is missed even when the WebSocket connection drops.</span>
+            </div>
+
+            <!-- Sync Options -->
+            <div class="row" style="margin-bottom:20px;">
+                <div class="col-md-4">
+                    <label class="form-label" th:text="#{attendanceSync.startDate}">Start Date</label>
+                    <input type="date" class="form-control" id="sync-start-date">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label" th:text="#{attendanceSync.endDate}">End Date</label>
+                    <input type="date" class="form-control" id="sync-end-date">
+                </div>
+                <div class="col-md-4" style="display:flex;align-items:flex-end;gap:10px;">
+                    <button class="btn btn-primary" id="btn-sync-attendance" onclick="app.syncAttendanceRange()">
+                        <i class="fas fa-sync"></i> <span th:text="#{attendanceSync.syncNow}">Sync Now</span>
+                    </button>
+                    <button class="btn btn-success" id="btn-sync-today" onclick="app.syncTodayAttendance()">
+                        <i class="fas fa-calendar-day"></i> <span th:text="#{attendanceSync.syncToday}">Sync Today</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div style="margin-bottom:20px;padding:15px;background:var(--hk-bg-secondary);border-radius:8px;">
+                <h6 style="margin-bottom:10px;" th:text="#{attendanceSync.quickActions}">Quick Actions</h6>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                    <button class="btn btn-sm btn-outline-primary" onclick="app.syncLastDays(1)">
+                        <span th:text="#{attendanceSync.last1Day}">Last 1 Day</span>
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="app.syncLastDays(3)">
+                        <span th:text="#{attendanceSync.last3Days}">Last 3 Days</span>
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="app.syncLastDays(7)">
+                        <span th:text="#{attendanceSync.last7Days}">Last 7 Days</span>
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="app.syncLastDays(30)">
+                        <span th:text="#{attendanceSync.last30Days}">Last 30 Days</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Sync Result -->
+            <div id="sync-result-panel" style="display:none;margin-bottom:20px;"></div>
+
+            <!-- Sync Progress -->
+            <div id="sync-progress" style="display:none;margin-bottom:20px;">
+                <div class="progress" style="height:25px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" style="width:100%" 
+                         th:text="#{attendanceSync.syncing}">Syncing...</div>
+                </div>
+            </div>
+
+            <!-- Info Cards -->
+            <div class="row" style="margin-top:30px;">
+                <div class="col-md-6">
+                    <div class="card" style="background:var(--hk-bg-secondary);">
+                        <div class="card-body">
+                            <h6><i class="fas fa-robot"></i> <span th:text="#{attendanceSync.autoSync}">Automatic Sync</span></h6>
+                            <p style="margin:10px 0;color:var(--hk-text-muted);" th:text="#{attendanceSync.autoSyncDesc}">
+                                The system automatically syncs attendance from cameras every 30 minutes to catch any missed records.
+                            </p>
+                            <span class="badge badge-success" th:text="#{attendanceSync.enabled}">Enabled</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card" style="background:var(--hk-bg-secondary);">
+                        <div class="card-body">
+                            <h6><i class="fas fa-shield-alt"></i> <span th:text="#{attendanceSync.dataSafety}">Data Safety</span></h6>
+                            <p style="margin:10px 0;color:var(--hk-text-muted);" th:text="#{attendanceSync.dataSafetyDesc}">
+                                Duplicate records are automatically detected and skipped. Existing attendance data is never overwritten.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Set default dates
+    document.addEventListener('DOMContentLoaded', function() {
+        const today = new Date().toISOString().split('T')[0];
+        const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        document.getElementById('sync-start-date').value = weekAgo;
+        document.getElementById('sync-end-date').value = today;
+    });
+</script>
+</body>
+</html>

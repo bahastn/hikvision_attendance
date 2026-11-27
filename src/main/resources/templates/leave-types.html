@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:replace="~{layout :: layout(~{::sidebar})}">
+<head><title th:text="#{page.leaveTypes}">Leave Types</title></head>
+<body>
+<div th:fragment="sidebar">
+
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title"><i class="fas fa-tags icon-spacing"></i><span th:text="#{leaveTypes.title}">Leave Types</span></span>
+            <button class="btn btn-primary" id="btn-add-leave-type" th:if="${@perm.can('LEAVES', 'MODIFY')}">
+                <i class="fas fa-plus"></i> <span th:text="#{leaveTypes.add}">Add Leave Type</span>
+            </button>
+        </div>
+        <div class="card-body">
+            <div class="search-bar">
+                <input type="text" class="form-control" id="leave-type-search" th:placeholder="#{leaveTypes.searchPlaceholder}" style="width:300px;">
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th th:text="#{leaveTypes.nameEn}">Name (English)</th>
+                            <th th:text="#{leaveTypes.nameKu}">Name (Kurdish)</th>
+                            <th th:text="#{leaveTypes.usage}">In use</th>
+                            <th th:text="#{leaveTypes.status}">Status</th>
+                            <th th:text="#{table.actions}">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leave-types-table-body">
+                        <tr><td colspan="5" style="text-align:center;color:var(--hk-text-muted);padding:30px;" th:text="#{leaveTypes.loading}">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leave Type Modal -->
+    <div class="modal-overlay" id="leave-type-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="leave-type-modal-title" th:text="#{leaveTypes.modal.add}">Add Leave Type</h3>
+                <button class="modal-close" onclick="app.closeModal('leave-type-modal')">&times;</button>
+            </div>
+            <form id="leave-type-form">
+                <div class="modal-body">
+                    <input type="hidden" id="leave-type-id-hidden">
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{leaveTypes.form.nameEn}">Name (English) *</label>
+                        <input type="text" class="form-control" id="leave-type-name-en" required maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" th:text="#{leaveTypes.form.nameKu}">Name (Kurdish)</label>
+                        <input type="text" class="form-control" id="leave-type-name-ku" maxlength="100" dir="rtl">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                            <input type="checkbox" id="leave-type-active" checked style="width:auto;">
+                            <span th:text="#{leaveTypes.form.active}">Active</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="app.closeModal('leave-type-modal')" th:text="#{leaveTypes.form.cancel}">Cancel</button>
+                    <button type="submit" class="btn btn-primary" th:text="#{leaveTypes.form.save}">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+</body>
+</html>
