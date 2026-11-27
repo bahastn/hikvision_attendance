@@ -107,9 +107,18 @@ public class FaceCaptureService {
     @Transactional
     public void recordUncertainMatch(CameraConfig camera, FaceEvent event, byte[] picture,
                                      Employee candidate, double score, String note, String source) {
+        recordUncertainMatch(camera, event, picture, candidate, score, note, source, null, null);
+    }
+
+    /** As above, with an alternative employee the reviewer can choose instead of the candidate. */
+    @Transactional
+    public void recordUncertainMatch(CameraConfig camera, FaceEvent event, byte[] picture,
+                                     Employee candidate, double score, String note, String source,
+                                     Employee alternative, Double alternativeScore) {
         if (picture == null || picture.length == 0 || candidate == null) {
             return;
         }
+        boolean hasAlternative = alternative != null && !alternative.getEmployeeId().equals(candidate.getEmployeeId());
         try {
             String imageUrl = writeCaptureFile(camera.getId(), picture);
             LocalDateTime capturedAt = capturedAtOf(event);
@@ -124,6 +133,9 @@ public class FaceCaptureService {
                     .candidateEmployeeName(candidate.getFullName())
                     .candidateScore(score)
                     .matchNote(note != null && note.length() > 500 ? note.substring(0, 500) : note)
+                    .alternativeEmployeeId(hasAlternative ? alternative.getEmployeeId() : null)
+                    .alternativeEmployeeName(hasAlternative ? alternative.getFullName() : null)
+                    .alternativeScore(hasAlternative ? alternativeScore : null)
                     .reviewStatus(FaceCapture.ReviewStatus.PENDING_REVIEW)
                     .capturedAt(capturedAt)
                     .expiresAt(capturedAt.plusHours(retentionHours))
@@ -319,6 +331,9 @@ public class FaceCaptureService {
                 .candidateEmployeeName(c.getCandidateEmployeeName())
                 .candidateScore(c.getCandidateScore())
                 .matchNote(c.getMatchNote())
+                .alternativeEmployeeId(c.getAlternativeEmployeeId())
+                .alternativeEmployeeName(c.getAlternativeEmployeeName())
+                .alternativeScore(c.getAlternativeScore())
                 .reviewStatus(c.getReviewStatus() != null ? c.getReviewStatus().name() : null)
                 .build();
     }

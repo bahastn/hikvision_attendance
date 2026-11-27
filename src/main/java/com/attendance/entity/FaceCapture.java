@@ -79,6 +79,19 @@ public class FaceCapture {
     private String matchNote;
 
     /**
+     * A second plausible employee for the reviewer to choose instead of the candidate: the
+     * runner-up when two people scored close, or InsightFace's pick when it disagreed with the camera.
+     */
+    @Column(name = "alternative_employee_id")
+    private String alternativeEmployeeId;
+
+    @Column(name = "alternative_employee_name")
+    private String alternativeEmployeeName;
+
+    @Column(name = "alternative_score")
+    private Double alternativeScore;
+
+    /**
      * Review state of this capture. {@code NONE} for ordinary captures; {@code PENDING_REVIEW} for an
      * uncertain InsightFace suggestion awaiting a human decision; {@code CONFIRMED}/{@code REJECTED}
      * once reviewed. Stored as text; null is treated as NONE.

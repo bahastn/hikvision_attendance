@@ -87,18 +87,124 @@ public class InsightFaceService {
         if (!isEnabled() || jpeg == null || jpeg.length == 0) {
             return RecognitionResult.noMatch("DISABLED", null, null);
         }
+        Probe probe = probe(jpeg);
+        if (!probe.usable()) {
+            return RecognitionResult.noMatch(probe.reason(), probe.face(), null);
+        }
+        return match(probe.vector(), probe.face()).withPicture(jpeg);
+    }
+
+    /** A captured face prepared for matching: usable (with its vector) or the reason it is not. */
+    record Probe(DetectedFace face, float[] vector, String reason, byte[] picture) {
+        boolean usable() {
+            return vector != null;
+        }
+    }
+
+    /** Detect the main face in a picture and apply the probe quality gate. */
+    Probe probe(byte[] jpeg) {
+        if (jpeg == null || jpeg.length == 0) {
+            return new Probe(null, null, "NO_FACE", jpeg);
+        }
         List<DetectedFace> faces = client.embed(jpeg);
         DetectedFace face = FaceQuality.primaryFace(faces, settings.getProbeMinDetScore());
         if (face == null) {
-            return RecognitionResult.noMatch("NO_FACE", null, null);
+            return new Probe(null, null, "NO_FACE", jpeg);
         }
         FaceQuality.Assessment quality = FaceQuality.assess(face, settings.probePolicy());
         if (!quality.ok()) {
             log.debug("Probe face rejected: {}", quality.detail());
-            return RecognitionResult.noMatch("LOW_QUALITY:" + quality.issue().name(), face, null);
+            return new Probe(face, null, "LOW_QUALITY:" + quality.issue().name(), jpeg);
         }
-        float[] probe = EmbeddingCodec.normalize(face.embedding());
-        return match(probe, face).withPicture(jpeg);
+        return new Probe(face, EmbeddingCodec.normalize(face.embedding()), "OK", jpeg);
+    }
+
+    /**
+     * Result of checking a camera match with InsightFace (phase 5).
+     *
+     * @param outcome          AGREE / WEAK / CONFLICT / NOT_CHECKED
+     * @param reason           for NOT_CHECKED: DISABLED, NO_SAMPLES, NO_FACE, LOW_QUALITY:..., STORED_PHOTO
+     * @param cameraScore      InsightFace score against the camera's employee
+     * @param other            for CONFLICT (and informative otherwise): the best other employee
+     * @param otherScore       that employee's score
+     * @param recognition      when InsightFace itself would confidently pick the camera's employee:
+     *                         a HIGH result usable for auto-learning; otherwise null
+     */
+    public record VerificationResult(CameraVerification.Outcome outcome, String reason, double cameraScore,
+                                     Employee other, double otherScore, RecognitionResult recognition) {
+        static VerificationResult notChecked(String reason) {
+            return new VerificationResult(CameraVerification.Outcome.NOT_CHECKED, reason, 0.0, null, 0.0, null);
+        }
+    }
+
+    /**
+     * Second opinion on a match the camera made: compare the captured face with the camera's
+     * employee's photos and with everyone else. Never throws; anything that prevents a real check
+     * gives NOT_CHECKED so the camera's decision stands.
+     */
+    public VerificationResult verifyCameraMatch(Employee cameraEmployee, byte[] jpeg, Supplier<byte[]> fallbackPicture) {
+        try {
+            return doVerify(cameraEmployee, jpeg, fallbackPicture);
+        } catch (Exception e) {
+            log.warn("InsightFace verification failed: {}", e.getMessage());
+            return VerificationResult.notChecked("ERROR");
+        }
+    }
+
+    private VerificationResult doVerify(Employee cameraEmployee, byte[] jpeg, Supplier<byte[]> fallbackPicture) {
+        if (!isEnabled() || !settings.isVerifyCameraMatches() || cameraEmployee == null || cameraEmployee.getId() == null) {
+            return VerificationResult.notChecked("DISABLED");
+        }
+        List<FaceMatcher.Sample> own = gallery.samplesOf(cameraEmployee.getId());
+        if (own.isEmpty()) {
+            return VerificationResult.notChecked("NO_SAMPLES");
+        }
+        Probe probe = probe(jpeg);
+        boolean stored = probe.usable()
+                && FaceMatcher.maxSimilarity(probe.vector(), own) >= CameraVerification.STORED_PHOTO_SIMILARITY;
+        if ((!probe.usable() || stored) && fallbackPicture != null) {
+            byte[] second = fallbackPicture.get();
+            Probe retry = probe(second);
+            if (retry.usable()
+                    && FaceMatcher.maxSimilarity(retry.vector(), own) < CameraVerification.STORED_PHOTO_SIMILARITY) {
+                probe = retry;
+                stored = false;
+            }
+        }
+        if (!probe.usable()) {
+            return VerificationResult.notChecked(probe.reason());
+        }
+        if (stored) {
+            // The picture is the employee's stored photo, not a live capture: it proves nothing.
+            return VerificationResult.notChecked("STORED_PHOTO");
+        }
+
+        FaceMatcher.Aggregation aggregation = settings.aggregationMode();
+        double cameraScore = FaceMatcher.scoreEmployee(cameraEmployee.getId(), probe.vector(), own, aggregation)
+                .map(FaceMatcher.Candidate::score).orElse(0.0);
+        Map<Long, List<FaceMatcher.Sample>> others = gallery.snapshot();
+        others.remove(cameraEmployee.getId());
+        List<FaceMatcher.Candidate> ranked = FaceMatcher.rank(probe.vector(), others, aggregation, 1);
+        FaceMatcher.Candidate bestOther = ranked.isEmpty() ? null : ranked.get(0);
+        double otherScore = bestOther != null ? bestOther.score() : 0.0;
+
+        CameraVerification.Outcome outcome = CameraVerification.decide(cameraScore, otherScore,
+                settings.getLowThreshold(), settings.getHighThreshold(), settings.getMinMargin());
+        Employee other = bestOther == null ? null : employeeRepository.findById(bestOther.employeeDbId())
+                .filter(e -> Boolean.TRUE.equals(e.getIsActive())).orElse(null);
+        if (outcome == CameraVerification.Outcome.CONFLICT && other == null) {
+            outcome = cameraScore >= settings.getLowThreshold()
+                    ? CameraVerification.Outcome.AGREE : CameraVerification.Outcome.WEAK;
+        }
+
+        RecognitionResult recognition = null;
+        if (outcome == CameraVerification.Outcome.AGREE && cameraScore >= settings.getHighThreshold()
+                && cameraScore - otherScore >= settings.getMinMargin()) {
+            recognition = new RecognitionResult(FaceMatcher.Band.HIGH, cameraEmployee, cameraScore, otherScore,
+                    bestOther != null ? bestOther.employeeDbId() : null, "CONFIDENT", probe.face(), probe.vector(),
+                    probe.picture());
+        }
+        return new VerificationResult(outcome, "CHECKED", cameraScore, other, otherScore, recognition);
     }
 
     /**
@@ -151,6 +257,14 @@ public class InsightFaceService {
     public Optional<Double> scoreFor(Long employeeDbId, float[] probe) {
         return FaceMatcher.scoreEmployee(employeeDbId, probe, gallery.samplesOf(employeeDbId),
                 settings.aggregationMode()).map(FaceMatcher.Candidate::score);
+    }
+
+    public double lowThreshold() {
+        return settings.getLowThreshold();
+    }
+
+    public boolean verifyWeakGoesToReview() {
+        return settings.verifyWeakGoesToReview();
     }
 
     /** Short human-readable explanation of an uncertain result, for the review queue. */

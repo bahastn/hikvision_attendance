@@ -1687,7 +1687,9 @@ class AttendanceApp {
                 <img class="capture-photo" src="${c.imageUrl}" alt="capture" loading="lazy">
                 <div class="capture-body">
                     <span class="badge badge-late" style="align-self:flex-start;">
-                        ${this.translate('faceLibrary.insightFace', 'InsightFace')}${c.candidateScore != null ? ' &bull; ' + Math.round(Number(c.candidateScore) * 100) + '%' : ''}
+                        ${c.recognitionSource === 'CAMERA_VERIFY'
+                            ? this.translate('faceLibrary.cameraCheck', 'Camera match check')
+                            : this.translate('faceLibrary.insightFace', 'InsightFace')}${c.candidateScore != null ? ' &bull; ' + Math.round(Number(c.candidateScore) * 100) + '%' : ''}
                     </span>
                     <div class="capture-name">${c.candidateEmployeeName || this.translate('faceLibraryUnknown', 'Unknown')}</div>
                     <div class="capture-meta">
@@ -1703,6 +1705,11 @@ class AttendanceApp {
                     <button class="btn btn-primary" onclick="app.confirmPendingReview(${c.id})">
                         <i class="fas fa-check"></i> ${this.translate('faceLibrary.confirm', 'Confirm')}
                     </button>
+                    ${c.alternativeEmployeeId ? `
+                    <button class="btn btn-secondary" onclick="app.confirmPendingReview(${c.id}, this.dataset.emp)" data-emp="${String(c.alternativeEmployeeId).replace(/"/g, '')}"
+                            title="${this.translate('faceLibrary.confirmAlternative', 'Record attendance for this person instead')}">
+                        <i class="fas fa-user-check"></i> ${String(c.alternativeEmployeeName || c.alternativeEmployeeId).replace(/[<>&]/g, '')}${c.alternativeScore != null ? ' (' + Math.round(Number(c.alternativeScore) * 100) + '%)' : ''}
+                    </button>` : ''}
                     <button class="btn btn-secondary" onclick="app.rejectPendingReview(${c.id})">
                         <i class="fas fa-xmark"></i> ${this.translate('faceLibrary.reject', 'Reject')}
                     </button>
@@ -1711,9 +1718,10 @@ class AttendanceApp {
         `).join('');
     }
 
-    async confirmPendingReview(captureId) {
+    async confirmPendingReview(captureId, employeeId = null) {
         try {
-            const response = await this.ajaxPost(`/api/face-captures/${captureId}/confirm`, {});
+            const query = employeeId ? `?employeeId=${encodeURIComponent(employeeId)}` : '';
+            const response = await this.ajaxPost(`/api/face-captures/${captureId}/confirm${query}`, {});
             if (response.success) {
                 this.showToast(response.message || this.translate('faceLibrary.confirmed', 'Attendance recorded'), 'success');
                 this.loadPendingReviews();

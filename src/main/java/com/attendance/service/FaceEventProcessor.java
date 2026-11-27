@@ -92,12 +92,17 @@ public class FaceEventProcessor {
         // matched employees additionally get a persistent copy on their attendance record.
         byte[] pictureBytes = resolvePictureBytes(camera, event, picture);
 
-        // --- The camera recognized the employee: record attendance (unchanged behavior). ---
+        // --- The camera recognized the employee: record attendance, after an optional ---
+        // --- InsightFace second opinion (insightface.verify.enabled).                 ---
         if (employeeOpt.isPresent()) {
             Employee employee = employeeOpt.get();
+            lastAcceptedByPerson.put(cooldownKey, now);
+            if (insightFaceService.isEnabled() && pictureBytes != null && pictureBytes.length > 0
+                    && holdForReview(camera, event, employee, pictureBytes)) {
+                return;
+            }
             faceCaptureService.recordCapture(camera, event, pictureBytes, employee);
             recordAttendance(camera, event, employee, pictureBytes, event.getSimilarity(), "CAMERA");
-            lastAcceptedByPerson.put(cooldownKey, now);
             return;
         }
 
@@ -122,8 +127,11 @@ public class FaceEventProcessor {
             }
             if (result.band() == FaceMatcher.Band.UNCERTAIN && result.candidate() != null) {
                 // Uncertain -> queue for a human to confirm/reject (no attendance yet).
+                Employee alternative = "AMBIGUOUS".equals(result.reason()) && result.runnerUpDbId() != null
+                        ? employeeRepository.findById(result.runnerUpDbId()).orElse(null) : null;
                 faceCaptureService.recordUncertainMatch(camera, event, pictureBytes, result.candidate(), result.score(),
-                        insightFaceService.describeUncertain(result), "INSIGHTFACE");
+                        insightFaceService.describeUncertain(result), "INSIGHTFACE",
+                        alternative, alternative != null ? result.runnerUpScore() : null);
                 return;
             }
         }
@@ -132,6 +140,61 @@ public class FaceEventProcessor {
         faceCaptureService.recordCapture(camera, event, pictureBytes, null);
         log.info("Face event from {} did not match any employee (id={}, name={})",
                 camera.getIpAddress(), event.getEmployeeNo(), event.getPersonName());
+    }
+
+    /**
+     * Phase 5: ask InsightFace whether it agrees with the camera's match. Returns true when the
+     * event was put in the review queue instead of recording attendance:
+     * <ul>
+     *   <li>CONFLICT — another employee matches clearly better: always reviewed, and the reviewer
+     *       can pick either person;</li>
+     *   <li>WEAK — the face does not look like the employee's photos: reviewed when
+     *       {@code insightface.verify.on-weak=REVIEW} (default), accepted when ACCEPT.</li>
+     * </ul>
+     * AGREE and NOT_CHECKED (no usable face, no photos, service down) keep the camera's decision.
+     */
+    private boolean holdForReview(CameraConfig camera, FaceEvent event, Employee employee, byte[] pictureBytes) {
+        InsightFaceService.VerificationResult check = insightFaceService.verifyCameraMatch(
+                employee, pictureBytes, () -> downloadBackgroundPicture(camera, event));
+        switch (check.outcome()) {
+            case CONFLICT -> {
+                String note = String.format("Camera said %s (%s, %.0f%%), but the face looks more like %s (%s): %.2f vs %.2f",
+                        employee.getFullName(), employee.getEmployeeId(),
+                        event.getSimilarity() != null ? event.getSimilarity() : 0.0,
+                        check.other().getFullName(), check.other().getEmployeeId(),
+                        check.otherScore(), check.cameraScore());
+                log.warn("InsightFace disagrees with camera {} on {}: {}", camera.getIpAddress(),
+                        employee.getEmployeeId(), note);
+                faceCaptureService.recordUncertainMatch(camera, event, pictureBytes, employee, check.cameraScore(),
+                        note, "CAMERA_VERIFY", check.other(), check.otherScore());
+                return true;
+            }
+            case WEAK -> {
+                String note = String.format("Camera said %s (%.0f%%), but the face does not look like their photos "
+                                + "(%.2f < %.2f)", employee.getFullName(),
+                        event.getSimilarity() != null ? event.getSimilarity() : 0.0,
+                        check.cameraScore(), insightFaceService.lowThreshold());
+                if (insightFaceService.verifyWeakGoesToReview()) {
+                    log.info("InsightFace could not confirm camera match {} on {}: {}", employee.getEmployeeId(),
+                            camera.getIpAddress(), note);
+                    faceCaptureService.recordUncertainMatch(camera, event, pictureBytes, employee, check.cameraScore(),
+                            note, "CAMERA_VERIFY");
+                    return true;
+                }
+                log.info("Accepting camera match despite weak InsightFace score: {}", note);
+                return false;
+            }
+            case AGREE -> {
+                if (check.recognition() != null) {
+                    faceLearningService.considerAutoLearn(employee, check.recognition());
+                }
+                return false;
+            }
+            default -> {
+                log.debug("Camera match of {} not checked by InsightFace: {}", employee.getEmployeeId(), check.reason());
+                return false;
+            }
+        }
     }
 
     /** Persist the event picture and record an attendance detection for the given employee. */
